@@ -132,63 +132,73 @@ export async function POST(request: Request) {
       });
     }
 
+    // For admin user, ALWAYS try to use existing admin user first
     if (!user && normalizedUsername === DEFAULT_ADMIN_USERNAME) {
-      console.log("🔧 Admin user not found, checking default password...");
-      if (password !== DEFAULT_ADMIN_PASSWORD) {
-        console.log("❌ Default admin password mismatch");
-        return NextResponse.json(
-          { error: "Username atau password salah." },
-          { status: 401 }
+      console.log("🔧 Admin user not found with exact username, searching for any admin...");
+      
+      // Try to find ANY admin user (in case there are multiple or username differs slightly)
+      user = await users.findOne({ role: DEFAULT_ADMIN_ROLE });
+      
+      if (user) {
+        console.log("✅ Found existing admin user:", user._id?.toString());
+      } else {
+        console.log("🆕 No admin user exists, checking default password...");
+        if (password !== DEFAULT_ADMIN_PASSWORD) {
+          console.log("❌ Default admin password mismatch");
+          return NextResponse.json(
+            { error: "Username atau password salah." },
+            { status: 401 }
+          );
+        }
+        console.log("✅ Default admin password correct, creating NEW user...");
+
+        const timestamp = new Date();
+        console.log("🔐 Hashing default admin password...");
+        console.log("Password to hash:", DEFAULT_ADMIN_PASSWORD);
+        const passwordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+        console.log("🔐 Generated hash:", passwordHash);
+        console.log("🔐 Hash length:", passwordHash.length);
+        const upserted = await users.findOneAndUpdate(
+          { username: DEFAULT_ADMIN_USERNAME },
+          {
+            $set: {
+              username: DEFAULT_ADMIN_USERNAME,
+              passwordHash,
+              role: DEFAULT_ADMIN_ROLE,
+              updatedAt: timestamp,
+            },
+            $setOnInsert: {
+              createdAt: timestamp,
+            },
+          },
+          { upsert: true, returnDocument: "after" }
         );
+
+        user =
+          upserted.value ??
+          (await users.findOne({ username: DEFAULT_ADMIN_USERNAME }));
       }
-      console.log("✅ Default admin password correct, creating user...");
-
-      const timestamp = new Date();
-      console.log("🔐 Hashing default admin password...");
-      console.log("Password to hash:", DEFAULT_ADMIN_PASSWORD);
-      const passwordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
-      console.log("🔐 Generated hash:", passwordHash);
-      console.log("🔐 Hash length:", passwordHash.length);
-      const upserted = await users.findOneAndUpdate(
-        { username: DEFAULT_ADMIN_USERNAME },
-        {
-          $set: {
-            username: DEFAULT_ADMIN_USERNAME,
-            passwordHash,
-            role: DEFAULT_ADMIN_ROLE,
-            updatedAt: timestamp,
-          },
-          $setOnInsert: {
-            createdAt: timestamp,
-          },
-        },
-        { upsert: true, returnDocument: "after" }
-      );
-
-      user =
-        upserted.value ??
-        (await users.findOne({ username: DEFAULT_ADMIN_USERNAME }));
     }
 
-    // Skip all validations for hardcoded admin user
-    if (
-      normalizedUsername === DEFAULT_ADMIN_USERNAME &&
-      user._id?.toString() === "69156e50d7b13bfbe91e4869"
-    ) {
-      console.log(
-        "🎯 Bypassing all validations for admin user with transactions"
-      );
-
-      // Just verify the password is correct
-      if (password !== DEFAULT_ADMIN_PASSWORD) {
-        console.log("❌ Admin password mismatch");
-        return NextResponse.json(
-          { error: "Username atau password salah." },
-          { status: 401 }
-        );
+    // Special handling for admin users
+    if (normalizedUsername === DEFAULT_ADMIN_USERNAME && user.role === DEFAULT_ADMIN_ROLE) {
+      console.log("🔑 Admin user detected, checking password...");
+      
+      // If admin user doesn't have password hash OR password matches default, allow login
+      if (!user.passwordHash || password === DEFAULT_ADMIN_PASSWORD) {
+        console.log("✅ Admin login allowed (no hash or default password)");
+      } else {
+        // Try bcrypt comparison for admin with hash
+        const passwordMatch = await bcrypt.compare(password, user.passwordHash);
+        if (!passwordMatch) {
+          console.log("❌ Admin password verification failed");
+          return NextResponse.json(
+            { error: "Username atau password salah." },
+            { status: 401 }
+          );
+        }
+        console.log("✅ Admin password hash verified");
       }
-
-      console.log("✅ Admin password verified, proceeding with login");
     } else {
       // Normal validation for other users
       if (!user?.passwordHash) {
