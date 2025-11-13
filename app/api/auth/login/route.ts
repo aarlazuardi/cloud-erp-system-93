@@ -116,7 +116,28 @@ export async function POST(request: Request) {
     }
 
     console.log("🔍 Looking up user in database...");
-    let user = await users.findOne({ username: normalizedUsername });
+    
+    // For admin user, find ANY admin user (not just by exact username match)
+    // This prevents creating multiple admin users
+    let user;
+    if (normalizedUsername === DEFAULT_ADMIN_USERNAME) {
+      // First try exact match
+      user = await users.findOne({ username: normalizedUsername });
+      
+      // If not found, try to find any admin user (in case of previous duplicates)
+      if (!user) {
+        user = await users.findOne({ 
+          $or: [
+            { username: DEFAULT_ADMIN_USERNAME },
+            { role: DEFAULT_ADMIN_ROLE }
+          ]
+        });
+        console.log("🔄 Found existing admin user with different criteria:", user ? user._id?.toString() : "None");
+      }
+    } else {
+      user = await users.findOne({ username: normalizedUsername });
+    }
+    
     console.log("👤 User found in DB:", user ? "Yes" : "No");
     if (user) {
       console.log("👤 User details:", { 
