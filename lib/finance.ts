@@ -599,12 +599,23 @@ async function fetchTransactions(
   console.log("🔍 Fetching transactions for userId:", userId.toString());
   const client = await clientPromise;
   const db = client.db(DEFAULT_DB_NAME);
+  
+  // Debug: Check all userIds in transactions collection
+  const allTransactions = await db.collection<TransactionDocument>("transactions").find({}).toArray();
+  console.log("📋 Total transactions in DB:", allTransactions.length);
+  const userIds = [...new Set(allTransactions.map(t => t.userId?.toString()).filter(Boolean))];
+  console.log("👥 All userIds in DB:", userIds);
+  console.log("🔍 Looking for userId:", userId.toString());
+  console.log("📍 userId exists in DB:", userIds.includes(userId.toString()));
+  
   const documents = await db
     .collection<TransactionDocument>("transactions")
     .find({ userId })
     .toArray();
 
-  console.log("📋 Raw documents from DB:", documents.length);
+  console.log("📋 Raw documents from DB for this user:", documents.length);
+  console.log("📄 Sample raw documents:", documents.slice(0, 2));
+  
   const normalized = documents
     .map((doc) => normaliseTransaction(doc))
     .filter((item): item is NormalizedTransaction => Boolean(item));
