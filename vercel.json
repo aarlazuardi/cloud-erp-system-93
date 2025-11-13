@@ -3,7 +3,7 @@
     "MONGODB_URI": "@mongodb_uri",
     "MONGODB_DB": "cloud-erp",
     "DEFAULT_ADMIN_USERNAME": "admin",
-    "DEFAULT_ADMIN_PASSWORD": "admin123", 
+    "DEFAULT_ADMIN_PASSWORD": "admin123",
     "DEFAULT_ADMIN_ROLE": "admin"
   },
   "build": {

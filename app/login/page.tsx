@@ -216,13 +216,15 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100">
-        <div className="flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100">
+          <div className="flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <LoginForm />
     </Suspense>
   );

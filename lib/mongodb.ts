@@ -3,7 +3,9 @@ import { MongoClient } from "mongodb";
 const uri = process.env.MONGODB_URI;
 
 if (!uri) {
-  throw new Error("MONGODB_URI environment variable is not set");
+  console.error("❌ MONGODB_URI environment variable is not set");
+  console.error("Available env vars:", Object.keys(process.env).filter(key => key.includes('MONGO')));
+  throw new Error("MONGODB_URI environment variable is not set. Please check your environment variables configuration in Vercel dashboard.");
 }
 
 const options = {
