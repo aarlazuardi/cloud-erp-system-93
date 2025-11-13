@@ -626,10 +626,42 @@ async function fetchTransactions(
   console.log("🔍 Looking for userId:", userId.toString());
   console.log("📍 userId exists in DB:", userIds.includes(userId.toString()));
 
-  const documents = await db
+  // Debug: Try different query approaches
+  console.log("🔍 Trying different query methods...");
+  
+  // Method 1: Direct ObjectId query
+  const documents1 = await db
     .collection<TransactionDocument>("transactions")
     .find({ userId })
     .toArray();
+  console.log("Method 1 (direct ObjectId):", documents1.length);
+  
+  // Method 2: String comparison
+  const documents2 = await db
+    .collection<TransactionDocument>("transactions")
+    .find({ userId: userId.toString() })
+    .toArray();
+  console.log("Method 2 (string):", documents2.length);
+  
+  // Method 3: Query all and filter
+  const allDocs = await db
+    .collection<TransactionDocument>("transactions")
+    .find({})
+    .toArray();
+  console.log("Method 3 (all docs):", allDocs.length);
+  
+  const filtered = allDocs.filter(doc => {
+    const docUserId = doc.userId?.toString();
+    const targetUserId = userId.toString();
+    console.log(`Comparing: ${docUserId} === ${targetUserId} = ${docUserId === targetUserId}`);
+    return docUserId === targetUserId;
+  });
+  console.log("Method 3 (filtered):", filtered.length);
+  
+  // Use the method that works
+  const documents = documents1.length > 0 ? documents1 : 
+                   documents2.length > 0 ? documents2 : 
+                   filtered;
 
   console.log("📋 Raw documents from DB for this user:", documents.length);
   console.log("📄 Sample raw documents:", documents.slice(0, 2));

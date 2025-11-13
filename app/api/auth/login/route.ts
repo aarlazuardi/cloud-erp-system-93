@@ -120,25 +120,7 @@ export async function POST(request: Request) {
     }
 
     console.log("🔍 Looking up user in database...");
-
-    // ALWAYS use the admin user that has the transactions (ID: 69156e50d7b13bfbe91e4869)
-    let user;
-    if (normalizedUsername === DEFAULT_ADMIN_USERNAME) {
-      console.log("🔍 Admin login detected, forcing specific user ID");
-
-      // ALWAYS use the user that has transactions
-      user = {
-        _id: new ObjectId("69156e50d7b13bfbe91e4869"),
-        username: "admin",
-        role: "admin",
-        passwordHash: null, // We'll bypass password check
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      console.log("🎯 Using hardcoded admin user with transactions");
-    } else {
-      user = await users.findOne({ username: normalizedUsername });
-    }
+    let user = await users.findOne({ username: normalizedUsername });
 
     console.log("👤 User found in DB:", user ? "Yes" : "No");
     if (user) {
