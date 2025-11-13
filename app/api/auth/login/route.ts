@@ -22,12 +22,16 @@ interface UserDocument {
 
 export async function POST(request: Request) {
   try {
+    console.log("🔐 Login attempt started");
     const { username, password } = (await request.json()) as {
       username?: unknown;
       password?: unknown;
     };
 
+    console.log("📝 Received credentials:", { username: username, passwordLength: typeof password === 'string' ? password.length : 'invalid' });
+
     if (typeof username !== "string" || typeof password !== "string") {
+      console.log("❌ Invalid credentials format");
       return NextResponse.json(
         { error: "Username dan password wajib diisi." },
         { status: 400 }
@@ -35,6 +39,9 @@ export async function POST(request: Request) {
     }
 
     const normalizedUsername = username.trim();
+    console.log("🔍 Normalized username:", normalizedUsername);
+    console.log("🔑 Default admin username:", DEFAULT_ADMIN_USERNAME);
+    console.log("🔑 Default admin password:", DEFAULT_ADMIN_PASSWORD);
 
     // Check for default admin credentials first (fallback for connection issues)
     if (
@@ -65,11 +72,13 @@ export async function POST(request: Request) {
 
     let client, db, users;
     try {
+      console.log("🔌 Attempting database connection...");
       client = await clientPromise;
       db = client.db(DEFAULT_DB_NAME);
       users = db.collection<UserDocument>("users");
+      console.log("✅ Database connection successful");
     } catch (dbError) {
-      console.error("Database connection error:", dbError);
+      console.error("❌ Database connection error:", dbError);
       // Fallback to default admin if DB is unreachable
       if (
         normalizedUsername === DEFAULT_ADMIN_USERNAME &&
@@ -106,18 +115,35 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log("🔍 Looking up user in database...");
     let user = await users.findOne({ username: normalizedUsername });
+    console.log("👤 User found in DB:", user ? "Yes" : "No");
+    if (user) {
+      console.log("👤 User details:", { 
+        id: user._id?.toString(), 
+        username: user.username, 
+        role: user.role,
+        hasPasswordHash: !!user.passwordHash 
+      });
+    }
 
     if (!user && normalizedUsername === DEFAULT_ADMIN_USERNAME) {
+      console.log("🔧 Admin user not found, checking default password...");
       if (password !== DEFAULT_ADMIN_PASSWORD) {
+        console.log("❌ Default admin password mismatch");
         return NextResponse.json(
           { error: "Username atau password salah." },
           { status: 401 }
         );
       }
+      console.log("✅ Default admin password correct, creating user...");
 
       const timestamp = new Date();
+      console.log("🔐 Hashing default admin password...");
+      console.log("Password to hash:", DEFAULT_ADMIN_PASSWORD);
       const passwordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+      console.log("🔐 Generated hash:", passwordHash);
+      console.log("🔐 Hash length:", passwordHash.length);
       const upserted = await users.findOneAndUpdate(
         { username: DEFAULT_ADMIN_USERNAME },
         {
@@ -140,6 +166,7 @@ export async function POST(request: Request) {
     }
 
     if (!user?.passwordHash) {
+      console.log("❌ User has no password hash");
       return NextResponse.json(
         { error: "Username atau password salah." },
         { status: 401 }
@@ -147,6 +174,7 @@ export async function POST(request: Request) {
     }
 
     if (typeof user.passwordHash !== "string" || !user.passwordHash.length) {
+      console.log("❌ Invalid password hash format");
       console.warn(
         "User password hash is invalid for username",
         normalizedUsername
@@ -157,13 +185,24 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log("🔐 Comparing passwords...");
+    console.log("Provided password:", password);
+    console.log("Stored hash:", user.passwordHash);
+    console.log("Hash length:", user.passwordHash.length);
+    console.log("Hash starts with $2b:", user.passwordHash.startsWith('$2b$'));
+    
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
+    console.log("🔐 Password comparison result:", passwordMatch);
+    
     if (!passwordMatch) {
+      console.log("❌ Password verification failed");
       return NextResponse.json(
         { error: "Username atau password salah." },
         { status: 401 }
       );
     }
+
+    console.log("✅ Password verified successfully");
 
     if (!user._id) {
       return NextResponse.json(
