@@ -597,12 +597,20 @@ async function fetchTransactions(
   userId: ObjectId
 ): Promise<NormalizedTransaction[]> {
   console.log("🔍 Fetching transactions for userId:", userId.toString());
+  console.log("🔍 Using database:", DEFAULT_DB_NAME);
+  
   const client = await clientPromise;
   const db = client.db(DEFAULT_DB_NAME);
   
+  // Debug: List all databases to make sure we're in the right one
+  const admin = client.db().admin();
+  const dbList = await admin.listDatabases();
+  console.log("📚 Available databases:", dbList.databases.map(d => d.name));
+  console.log("🎯 Currently using database:", DEFAULT_DB_NAME);
+  
   // Debug: Check all userIds in transactions collection
   const allTransactions = await db.collection<TransactionDocument>("transactions").find({}).toArray();
-  console.log("📋 Total transactions in DB:", allTransactions.length);
+  console.log("📋 Total transactions in current DB:", allTransactions.length);
   const userIds = [...new Set(allTransactions.map(t => t.userId?.toString()).filter(Boolean))];
   console.log("👥 All userIds in DB:", userIds);
   console.log("🔍 Looking for userId:", userId.toString());

@@ -8,6 +8,11 @@ if (!uri) {
   throw new Error("MONGODB_URI environment variable is not set. Please check your environment variables configuration in Vercel dashboard.");
 }
 
+console.log("🔗 MongoDB Connection Info:");
+console.log("- URI starts with:", uri.substring(0, 20) + "...");
+console.log("- Database name from env:", process.env.MONGODB_DB);
+console.log("- NODE_ENV:", process.env.NODE_ENV);
+
 const options = {
   maxPoolSize: 10,
   serverSelectionTimeoutMS: 5000,
