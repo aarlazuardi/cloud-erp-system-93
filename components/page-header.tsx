@@ -1,0 +1,31 @@
+"use client"
+
+import type React from "react"
+
+import { SidebarTrigger } from "@/components/ui/sidebar"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { Logo } from "./logo"
+import { useRouter } from "next/navigation"
+
+interface PageHeaderProps {
+  title: string
+  children?: React.ReactNode
+  showLogo?: boolean
+}
+
+export function PageHeader({ title, children, showLogo = false }: PageHeaderProps) {
+  const isMobile = useIsMobile()
+  const router = useRouter()
+
+  return (
+    <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-white px-6">
+      {isMobile && <SidebarTrigger className="mr-2 md:hidden" />}
+      {isMobile && showLogo ? (
+        <Logo onClick={() => router.push("/dashboard")} className="mr-4" />
+      ) : (
+        <h1 className="text-xl font-semibold">{title}</h1>
+      )}
+      <div className="ml-auto flex items-center gap-2">{children}</div>
+    </header>
+  )
+}
