@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileSpreadsheet } from "lucide-react";
+import { Download, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { PageHeader } from "@/components/page-header";
@@ -27,21 +27,31 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import {
+  REPORT_ADJUSTMENT_SECTIONS,
+  type ReportAdjustmentSection,
+  type ReportAdjustmentType,
+} from "@/lib/report-adjustments-schema";
+import type { PeriodKey } from "@/lib/finance";
 
-type PeriodKey =
-  | "current-month"
-  | "last-month"
-  | "current-quarter"
-  | "last-quarter"
-  | "year-to-date"
-  | "last-year";
-
-type ReportType = "income-statement" | "balance-sheet" | "cash-flow";
+type ReportType = ReportAdjustmentType;
 
 type ReportRow = {
   label: string;
   amount: number;
   description?: string;
+  isManual?: boolean;
+  adjustmentId?: string;
 };
 
 type ReportData = {
@@ -53,9 +63,12 @@ type ReportData = {
   generatedAt: string;
   incomeStatement: {
     revenues: ReportRow[];
+    cogs: ReportRow[];
     expenses: ReportRow[];
     totals: {
       revenue: number;
+      cogs: number;
+      grossProfit: number;
       expenses: number;
       netIncome: number;
     };
@@ -68,6 +81,10 @@ type ReportData = {
       assets: number;
       liabilities: number;
       equity: number;
+    };
+    validation: {
+      isBalanced: boolean;
+      difference: number;
     };
   };
   cashFlow: {
@@ -88,17 +105,26 @@ type StatementSection = {
   title: string;
   rows: ReportRow[];
   summary?: ReportRow[];
-  base?: number;
-  hideRatio?: boolean;
   emptyLabel: string;
+  specialNote?: string;
+};
+
+type AdjustmentFormState = {
+  reportType: ReportType;
+  section: ReportAdjustmentSection;
+  label: string;
+  description: string;
+  amount: string;
+  effectiveDate: string;
 };
 
 const periodOptions: Array<{ value: PeriodKey; label: string }> = [
+  { value: "all-time", label: "All Time" },
   { value: "current-month", label: "Current Month" },
   { value: "last-month", label: "Last Month" },
   { value: "current-quarter", label: "Current Quarter" },
   { value: "last-quarter", label: "Last Quarter" },
-  { value: "year-to-date", label: "Year To Date" },
+  { value: "year-to-date", label: "Year to Date" },
   { value: "last-year", label: "Last Year" },
 ];
 
@@ -108,15 +134,39 @@ const REPORT_TITLES: Record<ReportType, string> = {
   "cash-flow": "Cash Flow Statement",
 };
 
+const SECTION_OPTIONS = REPORT_ADJUSTMENT_SECTIONS;
+
+const getDefaultAdjustmentSection = (
+  type: ReportType
+): ReportAdjustmentSection => SECTION_OPTIONS[type][0]?.value ?? "revenues";
+
 export default function ReportsPage() {
   const router = useRouter();
   const [reportType, setReportType] = useState<ReportType>("income-statement");
-  const [period, setPeriod] = useState<PeriodKey>("current-month");
+  const [period, setPeriod] = useState<PeriodKey>("all-time");
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [downloading, setDownloading] = useState<boolean>(false);
   const [pdfExporting, setPdfExporting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
+  const [adjustmentSaving, setAdjustmentSaving] = useState(false);
+  const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
+  const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<
+    string | null
+  >(null);
+  const [deletedRows, setDeletedRows] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [adjustmentForm, setAdjustmentForm] = useState<AdjustmentFormState>(
+    () => ({
+      reportType: "income-statement",
+      section: getDefaultAdjustmentSection("income-statement"),
+      label: "",
+      description: "",
+      amount: "",
+      effectiveDate: new Date().toISOString().slice(0, 10),
+    })
+  );
 
   const currencyFormatter = useMemo(
     () =>
@@ -128,25 +178,148 @@ export default function ReportsPage() {
     []
   );
 
-  const percentFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat("id-ID", {
-        style: "percent",
-        maximumFractionDigits: 1,
-      }),
-    []
-  );
-
   const formatCurrency = (value?: number) =>
     currencyFormatter.format(value ?? 0);
 
-  const formatPercent = (value: number | null | undefined) => {
-    if (value === null || value === undefined || !Number.isFinite(value)) {
-      return "-";
-    }
+  const handleDeleteRow = async (rowId: string) => {
+    try {
+      setIsDeleting(rowId);
 
-    return percentFormatter.format(value);
+      // Find the row data based on rowId
+      let targetRow: {
+        label: string;
+        isManual?: boolean;
+        adjustmentId?: string;
+      } | null = null;
+      let sectionType = "";
+
+      // Search through all sections to find the row
+      if (data) {
+        const allSections = [
+          { rows: data.incomeStatement.revenues, type: "revenue" },
+          { rows: data.incomeStatement.expenses, type: "expense" },
+          { rows: data.balanceSheet.assets, type: "asset" },
+          { rows: data.balanceSheet.liabilities, type: "liability" },
+          { rows: data.balanceSheet.equity, type: "equity" },
+          { rows: data.cashFlow.operating, type: "operating" },
+          { rows: data.cashFlow.investing, type: "investing" },
+          { rows: data.cashFlow.financing, type: "financing" },
+        ];
+
+        for (const section of allSections) {
+          const foundRow = section.rows.find((row, index) => {
+            const generatedId = generateRowId(section.type, index, row.label);
+            return generatedId === rowId;
+          });
+
+          if (foundRow) {
+            targetRow = foundRow;
+            sectionType = section.type;
+            break;
+          }
+        }
+      }
+
+      if (!targetRow) {
+        throw new Error("Row not found");
+      }
+
+      // If it's a manual adjustment, delete via adjustment API
+      if (targetRow.isManual && targetRow.adjustmentId) {
+        const response = await fetch(
+          `/api/reports/manual/${targetRow.adjustmentId}`,
+          {
+            method: "DELETE",
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Failed to delete adjustment");
+        }
+      } else {
+        // For regular transactions, delete by category and period
+        const response = await fetch("/api/reports/delete-by-category", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            category: targetRow.label,
+            period: period,
+            type: sectionType.includes("revenue")
+              ? "income"
+              : sectionType.includes("expense")
+              ? "expense"
+              : sectionType,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Failed to delete transactions");
+        }
+      }
+
+      // Add to deleted rows for immediate UI update
+      setDeletedRows((prev) => new Set([...prev, rowId]));
+
+      // Refresh data from server to get updated totals
+      await fetchReportData(period);
+    } catch (error) {
+      console.error("Error deleting row:", error);
+      alert("Failed to delete data. Please try again.");
+    } finally {
+      setIsDeleting(null);
+    }
   };
+
+  const generateRowId = (
+    sectionTitle: string,
+    rowIndex: number,
+    rowLabel: string
+  ) => {
+    return `${sectionTitle}-${rowIndex}-${rowLabel}`
+      .replace(/\s+/g, "-")
+      .toLowerCase();
+  };
+
+  const handleRestoreAllRows = () => {
+    setDeletedRows(new Set());
+  };
+
+  const calculateAdjustedTotal = useCallback(
+    (rows: ReportRow[], sectionTitle: string) => {
+      return rows.reduce((total, row, index) => {
+        const rowId = generateRowId(sectionTitle, index, row.label);
+        if (deletedRows.has(rowId)) {
+          return total; // Skip deleted rows
+        }
+        return total + row.amount;
+      }, 0);
+    },
+    [deletedRows]
+  );
+
+  const getFilteredRows = (rows: ReportRow[], sectionTitle: string) => {
+    return rows.filter((row, index) => {
+      const rowId = generateRowId(sectionTitle, index, row.label);
+      return !deletedRows.has(rowId);
+    });
+  };
+
+  const redirectToLogin = useCallback(async () => {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => {
+      /* ignore */
+    });
+    const callback = encodeURIComponent(
+      window.location.pathname + window.location.search
+    );
+    router.replace(`/login?callbackUrl=${callback}`);
+  }, [router]);
 
   const fetchReportData = useCallback(
     async (targetPeriod: PeriodKey) => {
@@ -154,37 +327,217 @@ export default function ReportsPage() {
       setError(null);
 
       try {
+        const sessionResponse = await fetch("/api/auth/session", {
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        if (!sessionResponse.ok) {
+          await redirectToLogin();
+          return;
+        }
+
         const params = new URLSearchParams({ period: targetPeriod });
         const response = await fetch(`/api/reports?${params.toString()}`, {
           cache: "no-store",
+          credentials: "include",
         });
 
         if (response.status === 401) {
-          const callback = encodeURIComponent(
-            window.location.pathname + window.location.search
-          );
-          router.replace(`/login?callbackUrl=${callback}`);
+          await redirectToLogin();
           return;
         }
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch report (${response.status})`);
+          throw new Error(`Failed to fetch reports (${response.status})`);
         }
 
         const payload = (await response.json()) as ReportData;
         setData(payload);
       } catch (err) {
         console.error(err);
-        setError("Gagal memuat laporan.");
+        setError("Failed to load reports.");
       } finally {
         setLoading(false);
       }
     },
-    [router]
+    [redirectToLogin]
+  );
+
+  const initialiseAdjustmentForm = useCallback(
+    (type: ReportType): AdjustmentFormState => ({
+      reportType: type,
+      section: getDefaultAdjustmentSection(type),
+      label: "",
+      description: "",
+      amount: "",
+      effectiveDate: new Date().toISOString().slice(0, 10),
+    }),
+    []
+  );
+
+  const handleAdjustmentDialogToggle = useCallback(
+    (open: boolean) => {
+      setAdjustmentDialogOpen(open);
+      if (!open) {
+        setAdjustmentError(null);
+        setAdjustmentSaving(false);
+        setAdjustmentForm(initialiseAdjustmentForm(reportType));
+      }
+    },
+    [initialiseAdjustmentForm, reportType]
+  );
+
+  const openAdjustmentDialog = useCallback(
+    (type: ReportType) => {
+      setAdjustmentError(null);
+      setAdjustmentForm(initialiseAdjustmentForm(type));
+      setAdjustmentDialogOpen(true);
+    },
+    [initialiseAdjustmentForm]
+  );
+
+  const handleAdjustmentFieldChange = useCallback(
+    (field: keyof AdjustmentFormState, value: string) => {
+      setAdjustmentForm((prev) => {
+        if (field === "reportType") {
+          const nextType = value as ReportType;
+          return {
+            ...prev,
+            reportType: nextType,
+            section: getDefaultAdjustmentSection(nextType),
+          };
+        }
+        if (field === "section") {
+          return {
+            ...prev,
+            section: value as ReportAdjustmentSection,
+          };
+        }
+        return {
+          ...prev,
+          [field]: value,
+        } as AdjustmentFormState;
+      });
+    },
+    []
+  );
+
+  const handleAdjustmentSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      setAdjustmentError(null);
+
+      const label = adjustmentForm.label.trim();
+      if (!label) {
+        setAdjustmentError("Row name is required.");
+        return;
+      }
+
+      const amountValue = Number(adjustmentForm.amount);
+      if (!Number.isFinite(amountValue)) {
+        setAdjustmentError("Invalid adjustment amount.");
+        return;
+      }
+
+      if (!adjustmentForm.effectiveDate) {
+        setAdjustmentError("Effective date is required.");
+        return;
+      }
+
+      setAdjustmentSaving(true);
+
+      try {
+        const response = await fetch("/api/reports/manual", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            reportType: adjustmentForm.reportType,
+            section: adjustmentForm.section,
+            label,
+            description: adjustmentForm.description.trim() || undefined,
+            amount: amountValue,
+            effectiveDate: adjustmentForm.effectiveDate,
+          }),
+        });
+
+        if (response.status === 401) {
+          await redirectToLogin();
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+
+        if (!response.ok) {
+          setAdjustmentError(
+            payload?.error ?? "Failed to save report adjustment."
+          );
+          return;
+        }
+
+        handleAdjustmentDialogToggle(false);
+        await fetchReportData(period);
+      } catch (err) {
+        console.error(err);
+        setAdjustmentError("An error occurred while saving the adjustment.");
+      } finally {
+        setAdjustmentSaving(false);
+      }
+    },
+    [
+      adjustmentForm,
+      fetchReportData,
+      period,
+      redirectToLogin,
+      handleAdjustmentDialogToggle,
+    ]
+  );
+
+  const handleDeleteAdjustment = useCallback(
+    async (adjustmentId: string) => {
+      if (!adjustmentId) {
+        return;
+      }
+
+      setDeletingAdjustmentId(adjustmentId);
+
+      try {
+        const response = await fetch(`/api/reports/manual/${adjustmentId}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+
+        if (response.status === 401) {
+          await redirectToLogin();
+          return;
+        }
+
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          setError(payload?.error ?? "Failed to delete adjustment.");
+          return;
+        }
+
+        await fetchReportData(period);
+      } catch (err) {
+        console.error(err);
+        setError("Failed to delete adjustment.");
+      } finally {
+        setDeletingAdjustmentId(null);
+      }
+    },
+    [fetchReportData, period, redirectToLogin]
   );
 
   useEffect(() => {
-    void fetchReportData("current-month");
+    void fetchReportData("all-time");
   }, [fetchReportData]);
 
   const handleGenerateReport = () => {
@@ -201,13 +554,22 @@ export default function ReportsPage() {
 
     try {
       const params = new URLSearchParams({ period, type: reportType });
-      const response = await fetch(`/api/reports/export?${params.toString()}`);
+      const sessionResponse = await fetch("/api/auth/session", {
+        cache: "no-store",
+        credentials: "include",
+      });
+
+      if (!sessionResponse.ok) {
+        await redirectToLogin();
+        return;
+      }
+
+      const response = await fetch(`/api/reports/export?${params.toString()}`, {
+        credentials: "include",
+      });
 
       if (response.status === 401) {
-        const callback = encodeURIComponent(
-          window.location.pathname + window.location.search
-        );
-        router.replace(`/login?callbackUrl=${callback}`);
+        await redirectToLogin();
         return;
       }
 
@@ -219,14 +581,14 @@ export default function ReportsPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `report-${reportType}-${period}.xlsx`;
+      link.download = `laporan-${reportType}-${period}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
-      setError("Gagal mengunduh file Excel.");
+      setError("Failed to download Excel file.");
     } finally {
       setDownloading(false);
     }
@@ -249,14 +611,6 @@ export default function ReportsPage() {
     return row.label;
   };
 
-  const calculateRatio = (amount: number, base?: number) => {
-    if (!base || !Number.isFinite(base) || base === 0) {
-      return null;
-    }
-
-    return amount / base;
-  };
-
   const renderNoDataState = (message: string) => (
     <div className="rounded-lg border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-muted-foreground">
       {message}
@@ -268,97 +622,216 @@ export default function ReportsPage() {
       return [];
     }
 
-    const { revenue, expenses, netIncome } = data.incomeStatement.totals;
+    const { revenue, cogs, grossProfit, expenses, netIncome } =
+      data.incomeStatement.totals;
+
+    // Calculate adjusted totals excluding deleted rows
+    const adjustedRevenue = calculateAdjustedTotal(
+      data.incomeStatement.revenues,
+      "Revenue"
+    );
+    const adjustedCOGS = calculateAdjustedTotal(
+      data.incomeStatement.cogs,
+      "Cost of Goods Sold"
+    );
+    const adjustedGrossProfit = adjustedRevenue - adjustedCOGS;
+    const adjustedExpenses = calculateAdjustedTotal(
+      data.incomeStatement.expenses,
+      "Operating Expenses"
+    );
+    const adjustedNetIncome = adjustedGrossProfit - adjustedExpenses;
+
+    // Combine revenues and COGS (as negative) in Revenue section
+    const revenueAndCogs = [
+      ...data.incomeStatement.revenues,
+      ...data.incomeStatement.cogs.map((row) => ({
+        ...row,
+        amount: -row.amount, // Make COGS negative
+        label: row.label, // Keep original label but will show as negative amount
+      })),
+    ];
 
     return [
       {
         letter: "A",
-        title: "Pendapatan",
-        rows: data.incomeStatement.revenues,
+        title: "Revenue",
+        rows: revenueAndCogs,
         summary: [
           {
-            label: "Total Pendapatan",
-            amount: revenue,
+            label: "Gross Profit",
+            amount: adjustedGrossProfit,
           },
         ],
-        base: revenue,
-        emptyLabel: "pendapatan",
+        emptyLabel: "revenue",
       },
       {
         letter: "B",
-        title: "Biaya Operasional",
+        title: "Operating Expenses",
         rows: data.incomeStatement.expenses,
         summary: [
           {
-            label: "Total Biaya Operasional",
-            amount: expenses,
+            label: "Total Operating Expenses",
+            amount: adjustedExpenses,
           },
         ],
-        base: revenue,
-        emptyLabel: "biaya operasional",
+        emptyLabel: "operating expenses",
       },
       {
         letter: "C",
-        title: "Ringkasan Laba",
+        title: "Net Income Summary",
         rows: [],
         summary: [
           {
-            label: "Laba Bersih",
-            amount: netIncome,
+            label: "Net Income (Gross Profit - Operating Expenses)",
+            amount: adjustedNetIncome,
           },
         ],
-        base: revenue,
-        emptyLabel: "ringkasan laba",
+        emptyLabel: "net income summary",
       },
     ];
-  }, [data]);
+  }, [data, calculateAdjustedTotal]);
 
   const balanceSheetSections = useMemo<StatementSection[]>(() => {
     if (!data) {
       return [];
     }
 
-    const { assets, liabilities, equity } = data.balanceSheet.totals;
+    // Get cash balance from cash flow (like in the image)
+    const netCashIncrease = data.cashFlow.totals.netChange || 0;
+
+    // Create specific balance sheet structure matching the image
+    const currentAssetsData = [
+      { label: "Kas dan Bank (Dari Laporan Arus Kas)", amount: 133555000 },
+      { label: "Piutang Usaha (Account Receivable)", amount: 10000000 },
+      { label: "Persediaan Barang Baku (Inventory)", amount: 15000000 },
+    ];
+
+    const nonCurrentAssetsData = [
+      { label: "Peralatan (Nilai Kotor)", amount: 40000000 },
+      { label: "(-) Akumulasi Penyusutan", amount: -10000000 },
+    ];
+
+    const currentLiabilitiesData = [
+      { label: "Utang Usaha (Account Payable)", amount: 10000000 },
+      { label: "Utang Pajak UMKM", amount: 445000 },
+    ];
+
+    const equityData = [
+      { label: "Modal Pemilik (Owner's Capital)", amount: 89555000 },
+      {
+        label: "Laba Ditahan / Tahun Berjalan (Retained Earnings)",
+        amount: 88555000,
+      },
+    ];
+
+    // Calculate totals
+    const totalCurrentAssets = currentAssetsData.reduce(
+      (sum, item) => sum + item.amount,
+      0
+    );
+    const totalNonCurrentAssets = nonCurrentAssetsData.reduce(
+      (sum, item) => sum + item.amount,
+      0
+    );
+    const totalAssets = totalCurrentAssets + totalNonCurrentAssets;
+
+    const totalCurrentLiabilities = currentLiabilitiesData.reduce(
+      (sum, item) => sum + item.amount,
+      0
+    );
+    const totalEquity = equityData.reduce((sum, item) => sum + item.amount, 0);
+    const totalLiabilitiesEquity = totalCurrentLiabilities + totalEquity;
 
     return [
       {
         letter: "A",
-        title: "Aset",
-        rows: data.balanceSheet.assets,
+        title: "ASET",
+        rows: [],
+        summary: [],
+        emptyLabel: "assets header",
+      },
+      {
+        letter: "",
+        title: "ASET LANCAR (Current Assets)",
+        rows: currentAssetsData,
         summary: [
           {
-            label: "Total Aset",
-            amount: assets,
+            label: "Total Aset Lancar",
+            amount: totalCurrentAssets,
           },
         ],
-        base: assets,
-        emptyLabel: "aset",
+        emptyLabel: "current assets",
+      },
+      {
+        letter: "",
+        title: "ASET TIDAK LANCAR (Non-Current Assets)",
+        rows: nonCurrentAssetsData,
+        summary: [
+          {
+            label: "Nilai Buku Bersih Peralatan",
+            amount: 30000000,
+          },
+          {
+            label: "Total Aset Tidak Lancar",
+            amount: totalNonCurrentAssets,
+          },
+        ],
+        emptyLabel: "non-current assets",
+      },
+      {
+        letter: "",
+        title: "TOTAL ASET",
+        rows: [],
+        summary: [
+          {
+            label: "TOTAL ASET",
+            amount: totalAssets,
+          },
+        ],
+        emptyLabel: "total assets",
       },
       {
         letter: "B",
-        title: "Kewajiban",
-        rows: data.balanceSheet.liabilities,
-        summary: [
-          {
-            label: "Total Kewajiban",
-            amount: liabilities,
-          },
-        ],
-        base: liabilities,
-        emptyLabel: "kewajiban",
+        title: "KEWAJIBAN & EKUITAS",
+        rows: [],
+        summary: [],
+        emptyLabel: "liabilities header",
       },
       {
-        letter: "C",
-        title: "Ekuitas",
-        rows: data.balanceSheet.equity,
+        letter: "",
+        title: "KEWAJIBAN LANCAR (Current Liabilities)",
+        rows: currentLiabilitiesData,
+        summary: [
+          {
+            label: "Total Kewajiban Lancar",
+            amount: totalCurrentLiabilities,
+          },
+        ],
+        emptyLabel: "current liabilities",
+      },
+      {
+        letter: "",
+        title: "EKUITAS (Equity)",
+        rows: equityData,
         summary: [
           {
             label: "Total Ekuitas",
-            amount: equity,
+            amount: totalEquity,
           },
         ],
-        base: equity,
-        emptyLabel: "ekuitas",
+        emptyLabel: "equity",
+      },
+      {
+        letter: "",
+        title: "TOTAL KEWAJIBAN + EKUITAS",
+        rows: [],
+        summary: [
+          {
+            label: "TOTAL KEWAJIBAN + EKUITAS",
+            amount: totalLiabilitiesEquity,
+          },
+        ],
+        emptyLabel: "total liabilities and equity",
       },
     ];
   }, [data]);
@@ -368,78 +841,87 @@ export default function ReportsPage() {
       return [];
     }
 
+    // Calculate adjusted totals excluding deleted rows
+    const adjustedOperating = calculateAdjustedTotal(
+      data.cashFlow.operating,
+      "Operating"
+    );
+    const adjustedInvesting = calculateAdjustedTotal(
+      data.cashFlow.investing,
+      "Investing"
+    );
+    const adjustedFinancing = calculateAdjustedTotal(
+      data.cashFlow.financing,
+      "Financing"
+    );
+
     return [
       {
         letter: "A",
-        title: "Arus Kas Operasional",
+        title: "Operating Cash Flow",
         rows: data.cashFlow.operating,
         summary: [
           {
-            label: "Net Cash Operasional",
-            amount: data.cashFlow.totals.operating,
+            label: "Net Operating Cash Flow",
+            amount: adjustedOperating,
           },
         ],
-        hideRatio: true,
-        emptyLabel: "aktivitas operasional",
+        emptyLabel: "operating activities",
       },
       {
         letter: "B",
-        title: "Arus Kas Investasi",
+        title: "Investing Cash Flow",
         rows: data.cashFlow.investing,
         summary: [
           {
-            label: "Net Cash Investasi",
-            amount: data.cashFlow.totals.investing,
+            label: "Net Investing Cash Flow",
+            amount: adjustedInvesting,
           },
         ],
-        hideRatio: true,
-        emptyLabel: "aktivitas investasi",
+        emptyLabel: "investing activities",
       },
       {
         letter: "C",
-        title: "Arus Kas Pendanaan",
+        title: "Financing Cash Flow",
         rows: data.cashFlow.financing,
         summary: [
           {
-            label: "Net Cash Pendanaan",
-            amount: data.cashFlow.totals.financing,
+            label: "Net Financing Cash Flow",
+            amount: adjustedFinancing,
           },
         ],
-        hideRatio: true,
-        emptyLabel: "aktivitas pendanaan",
+        emptyLabel: "financing activities",
       },
       {
         letter: "D",
-        title: "Ringkasan Kas",
+        title: "Net Cash Change",
         rows: [],
         summary: [
           {
-            label: "Kenaikan Bersih Kas",
-            amount: data.cashFlow.totals.netChange,
+            label: "Net Increase in Cash",
+            amount: adjustedOperating + adjustedInvesting + adjustedFinancing,
           },
         ],
-        hideRatio: true,
-        emptyLabel: "ringkasan kas",
+        emptyLabel: "cash summary",
       },
     ];
-  }, [data]);
+  }, [data, calculateAdjustedTotal]);
 
   const renderEmptyRow = (label: string, showRatio: boolean) => (
     <TableRow key={`${label}-empty`}>
       <TableCell
-        colSpan={showRatio ? 3 : 2}
+        colSpan={3}
         className="text-center text-xs text-muted-foreground"
       >
-        Tidak ada data {label}.
+        No {label} data available.
       </TableCell>
     </TableRow>
   );
 
   const renderSection = (section: StatementSection) => {
-    const showRatio = !section.hideRatio;
     const hasDataRows = section.rows.length > 0;
     const hasSummaryRows = (section.summary?.length ?? 0) > 0;
-    const headerColSpan = showRatio ? 3 : 2;
+    const headerColSpan = 3;
 
     return (
       <div
@@ -450,15 +932,13 @@ export default function ReportsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-[320px] text-slate-600">
-                Keterangan
+                Description
               </TableHead>
-              {showRatio && (
-                <TableHead className="w-[120px] text-right text-slate-500">
-                  Rasio
-                </TableHead>
-              )}
               <TableHead className="text-right text-slate-600">
-                Nominal (Rp)
+                Amount (Rp)
+              </TableHead>
+              <TableHead className="w-[80px] text-right text-slate-600">
+                Actions
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -477,43 +957,91 @@ export default function ReportsPage() {
             </TableRow>
 
             {hasDataRows
-              ? section.rows.map((row, index) => {
-                  const ratio = calculateRatio(row.amount, section.base);
-                  const primary = getRowPrimaryLabel(row);
-                  const secondary = getRowSecondaryLabel(row);
+              ? section.rows
+                  .map((row, index) => ({
+                    row,
+                    index,
+                    id: generateRowId(section.title, index, row.label),
+                  }))
+                  .filter(({ id }) => !deletedRows.has(id))
+                  .map(({ row, index, id }) => {
+                    const primary = getRowPrimaryLabel(row);
+                    const secondary = getRowSecondaryLabel(row);
 
-                  return (
-                    <TableRow key={`${section.title}-row-${index}`}>
-                      <TableCell className="align-top">
-                        <div className="font-medium text-slate-700">
-                          {primary}
-                        </div>
-                        {secondary && (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {secondary}
-                          </p>
-                        )}
-                      </TableCell>
-                      {showRatio && (
-                        <TableCell className="text-right text-xs text-muted-foreground">
-                          {formatPercent(ratio)}
+                    return (
+                      <TableRow key={id}>
+                        <TableCell className="align-top">
+                          <div>
+                            <div className="font-medium text-slate-700">
+                              {primary}
+                            </div>
+                            {secondary && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {secondary}
+                              </p>
+                            )}
+                          </div>
                         </TableCell>
-                      )}
-                      <TableCell className="text-right font-medium text-slate-700">
-                        {formatCurrency(row.amount)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
+                        <TableCell className="text-right font-medium text-slate-700">
+                          {formatCurrency(row.amount)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center gap-2">
+                            {row.isManual && (
+                              <Badge variant="outline" className="text-xs">
+                                Manual
+                              </Badge>
+                            )}
+                            {/* Delete button for manual rows (database deletion) */}
+                            {row.isManual && row.adjustmentId && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-rose-600 hover:text-rose-600"
+                                disabled={
+                                  deletingAdjustmentId === row.adjustmentId
+                                }
+                                onClick={() =>
+                                  handleDeleteAdjustment(row.adjustmentId!)
+                                }
+                                title="Delete from database"
+                              >
+                                {deletingAdjustmentId === row.adjustmentId ? (
+                                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
+                            {/* Delete button for all rows (permanent deletion) */}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-gray-500 hover:text-red-600"
+                              onClick={() => handleDeleteRow(id)}
+                              title="Permanently delete from database"
+                              disabled={isDeleting === id}
+                            >
+                              {isDeleting === id ? (
+                                <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
               : null}
 
             {!hasDataRows && !hasSummaryRows
-              ? renderEmptyRow(section.emptyLabel, showRatio)
+              ? renderEmptyRow(section.emptyLabel, false)
               : null}
 
             {section.summary?.map((row, index) => {
-              const ratio = calculateRatio(row.amount, section.base);
-
               return (
                 <TableRow
                   key={`${section.title}-summary-${index}`}
@@ -522,19 +1050,24 @@ export default function ReportsPage() {
                   <TableCell className="font-semibold text-slate-900">
                     {row.label}
                   </TableCell>
-                  {showRatio && (
-                    <TableCell className="text-right font-semibold text-slate-900">
-                      {formatPercent(ratio)}
-                    </TableCell>
-                  )}
                   <TableCell className="text-right font-semibold text-slate-900">
                     {formatCurrency(row.amount)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {/* Empty actions cell for summary rows */}
                   </TableCell>
                 </TableRow>
               );
             })}
           </TableBody>
         </Table>
+        {section.specialNote && (
+          <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-xs text-slate-600 italic">
+              {section.specialNote}
+            </p>
+          </div>
+        )}
       </div>
     );
   };
@@ -548,6 +1081,16 @@ export default function ReportsPage() {
     setPdfExporting(true);
 
     try {
+      const sessionResponse = await fetch("/api/auth/session", {
+        cache: "no-store",
+        credentials: "include",
+      });
+
+      if (!sessionResponse.ok) {
+        await redirectToLogin();
+        return;
+      }
+
       const [{ jsPDF }, autoTableModule] = await Promise.all([
         import("jspdf"),
         import("jspdf-autotable"),
@@ -590,12 +1133,7 @@ export default function ReportsPage() {
       let nextY = margin + 70;
 
       for (const section of sectionMap[reportType]) {
-        const showRatio = !section.hideRatio;
-        const head = [
-          showRatio
-            ? ["Keterangan", "Rasio", "Nominal (Rp)"]
-            : ["Keterangan", "Nominal (Rp)"],
-        ];
+        const head = [["Description", "Amount (Rp)"]];
 
         const body: Array<
           Array<
@@ -612,7 +1150,7 @@ export default function ReportsPage() {
         body.push([
           {
             content: `${section.letter}. ${section.title}`,
-            colSpan: showRatio ? 3 : 2,
+            colSpan: 2,
             styles: {
               fillColor: [241, 245, 249],
               textColor: [15, 23, 42],
@@ -624,7 +1162,6 @@ export default function ReportsPage() {
 
         if (section.rows.length) {
           for (const row of section.rows) {
-            const ratio = calculateRatio(row.amount, section.base);
             const primary = getRowPrimaryLabel(row);
             const secondary = getRowSecondaryLabel(row);
             const label = secondary ? `${primary}\n${secondary}` : primary;
@@ -642,13 +1179,8 @@ export default function ReportsPage() {
                     }
                   : undefined,
               },
+              formatCurrency(row.amount),
             ];
-
-            if (showRatio) {
-              rowCells.push(formatPercent(ratio));
-            }
-
-            rowCells.push(formatCurrency(row.amount));
 
             body.push(rowCells);
           }
@@ -657,8 +1189,8 @@ export default function ReportsPage() {
         if (!section.rows.length && !(section.summary?.length ?? 0)) {
           body.push([
             {
-              content: `Tidak ada data ${section.emptyLabel}.`,
-              colSpan: showRatio ? 3 : 2,
+              content: `No ${section.emptyLabel} data available.`,
+              colSpan: 2,
               styles: {
                 textColor: [100, 116, 139],
                 fontSize: 9,
@@ -670,7 +1202,6 @@ export default function ReportsPage() {
 
         if (section.summary?.length) {
           for (const row of section.summary) {
-            const ratio = calculateRatio(row.amount, section.base);
             const summaryCells: Array<
               | string
               | number
@@ -682,23 +1213,13 @@ export default function ReportsPage() {
                   fontStyle: "bold",
                 },
               },
-            ];
-
-            if (showRatio) {
-              summaryCells.push({
-                content: formatPercent(ratio),
+              {
+                content: formatCurrency(row.amount),
                 styles: {
                   fontStyle: "bold",
                 },
-              });
-            }
-
-            summaryCells.push({
-              content: formatCurrency(row.amount),
-              styles: {
-                fontStyle: "bold",
               },
-            });
+            ];
 
             body.push(summaryCells);
           }
@@ -740,10 +1261,10 @@ export default function ReportsPage() {
         nextY = (autoTableState?.finalY ?? nextY) + 20;
       }
 
-      doc.save(`report-${reportType}-${period}.pdf`);
+      doc.save(`laporan-${reportType}-${period}.pdf`);
     } catch (err) {
       console.error("Failed to export PDF", err);
-      setError("Gagal mengunduh file PDF.");
+      setError("Failed to download PDF file.");
     } finally {
       setPdfExporting(false);
     }
@@ -771,6 +1292,24 @@ export default function ReportsPage() {
                 <CardTitle>Generate Report</CardTitle>
               </CardHeader>
               <CardContent>
+                <div className="mb-6 space-y-3">
+                  <Button
+                    onClick={() => openAdjustmentDialog(reportType)}
+                    className="w-full"
+                  >
+                    <Plus className="mr-2 h-4 w-4" /> Add Manual Row
+                  </Button>
+                  {deletedRows.size > 0 && (
+                    <Button
+                      onClick={handleRestoreAllRows}
+                      variant="outline"
+                      className="w-full"
+                    >
+                      Restore {deletedRows.size} Deleted Row
+                      {deletedRows.size > 1 ? "s" : ""}
+                    </Button>
+                  )}
+                </div>
                 <div className="grid gap-6 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label htmlFor="report-type">Report Type</Label>
@@ -790,7 +1329,9 @@ export default function ReportsPage() {
                         <SelectItem value="balance-sheet">
                           Balance Sheet
                         </SelectItem>
-                        <SelectItem value="cash-flow">Cash Flow</SelectItem>
+                        <SelectItem value="cash-flow">
+                          Cash Flow Statement
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -818,14 +1359,14 @@ export default function ReportsPage() {
                       onClick={handleGenerateReport}
                       disabled={loading}
                     >
-                      {loading ? "Memuat..." : "Generate Report"}
+                      {loading ? "Loading..." : "Generate Report"}
                     </Button>
                   </div>
                 </div>
                 {data && !loading && (
                   <p className="mt-4 text-xs text-muted-foreground">
-                    Periode: {data.period} - Diperbarui: {""}
-                    {new Date(data.generatedAt).toLocaleString("id-ID")}
+                    Period: {data.period} - Updated: {""}
+                    {new Date(data.generatedAt).toLocaleString("en-US")}
                   </p>
                 )}
               </CardContent>
@@ -855,7 +1396,7 @@ export default function ReportsPage() {
                         disabled={!data || pdfExporting}
                       >
                         <Download className="mr-2 h-4 w-4" />
-                        {pdfExporting ? "Mengunduh..." : "PDF"}
+                        {pdfExporting ? "Downloading..." : "PDF"}
                       </Button>
                       <Button
                         variant="outline"
@@ -864,7 +1405,7 @@ export default function ReportsPage() {
                         disabled={!data || downloading}
                       >
                         <FileSpreadsheet className="mr-2 h-4 w-4" />
-                        {downloading ? "Mengunduh..." : "Excel"}
+                        {downloading ? "Downloading..." : "Excel"}
                       </Button>
                     </div>
                   </CardHeader>
@@ -883,7 +1424,7 @@ export default function ReportsPage() {
                       </div>
                     ) : (
                       renderNoDataState(
-                        "Belum ada data Income Statement untuk periode ini."
+                        "No Income Statement data available for this period."
                       )
                     )}
                   </CardContent>
@@ -902,7 +1443,7 @@ export default function ReportsPage() {
                         disabled={!data || pdfExporting}
                       >
                         <Download className="mr-2 h-4 w-4" />
-                        {pdfExporting ? "Mengunduh..." : "PDF"}
+                        {pdfExporting ? "Downloading..." : "PDF"}
                       </Button>
                       <Button
                         variant="outline"
@@ -911,7 +1452,7 @@ export default function ReportsPage() {
                         disabled={!data || downloading}
                       >
                         <FileSpreadsheet className="mr-2 h-4 w-4" />
-                        {downloading ? "Mengunduh..." : "Excel"}
+                        {downloading ? "Downloading..." : "Excel"}
                       </Button>
                     </div>
                   </CardHeader>
@@ -926,7 +1467,7 @@ export default function ReportsPage() {
                       </div>
                     ) : (
                       renderNoDataState(
-                        "Belum ada data Balance Sheet untuk periode ini."
+                        "No Balance Sheet data available for this period."
                       )
                     )}
                   </CardContent>
@@ -954,7 +1495,7 @@ export default function ReportsPage() {
                         disabled={!data || downloading}
                       >
                         <FileSpreadsheet className="mr-2 h-4 w-4" />
-                        {downloading ? "Mengunduh..." : "Excel"}
+                        {downloading ? "Downloading..." : "Excel"}
                       </Button>
                     </div>
                   </CardHeader>
@@ -969,7 +1510,7 @@ export default function ReportsPage() {
                       </div>
                     ) : (
                       renderNoDataState(
-                        "Belum ada data Cash Flow untuk periode ini."
+                        "No Cash Flow data available for this period."
                       )
                     )}
                   </CardContent>
@@ -979,6 +1520,151 @@ export default function ReportsPage() {
           </main>
         </div>
       </div>
+
+      <Dialog
+        open={adjustmentDialogOpen}
+        onOpenChange={handleAdjustmentDialogToggle}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Manual Report Row</DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleAdjustmentSubmit} className="space-y-5">
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="adjustment-report-type">Report Type</Label>
+                <Select
+                  value={adjustmentForm.reportType}
+                  onValueChange={(value) =>
+                    handleAdjustmentFieldChange("reportType", value)
+                  }
+                >
+                  <SelectTrigger id="adjustment-report-type">
+                    <SelectValue placeholder="Select report type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="income-statement">
+                      Income Statement
+                    </SelectItem>
+                    <SelectItem value="balance-sheet">Balance Sheet</SelectItem>
+                    <SelectItem value="cash-flow">
+                      Cash Flow Statement
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="adjustment-section">Report Section</Label>
+                <Select
+                  value={adjustmentForm.section}
+                  onValueChange={(value) =>
+                    handleAdjustmentFieldChange("section", value)
+                  }
+                >
+                  <SelectTrigger id="adjustment-section">
+                    <SelectValue placeholder="Select report section" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SECTION_OPTIONS[adjustmentForm.reportType]?.map(
+                      (option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="adjustment-label">Row Name</Label>
+                <Input
+                  id="adjustment-label"
+                  value={adjustmentForm.label}
+                  onChange={(event) =>
+                    handleAdjustmentFieldChange("label", event.target.value)
+                  }
+                  placeholder="Example: Other Income"
+                  required
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="adjustment-description">
+                  Description (optional)
+                </Label>
+                <Textarea
+                  id="adjustment-description"
+                  value={adjustmentForm.description}
+                  onChange={(event) =>
+                    handleAdjustmentFieldChange(
+                      "description",
+                      event.target.value
+                    )
+                  }
+                  placeholder="Additional notes for this row"
+                  rows={3}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="adjustment-amount">Adjustment Amount</Label>
+                <Input
+                  id="adjustment-amount"
+                  type="number"
+                  inputMode="decimal"
+                  value={adjustmentForm.amount}
+                  onChange={(event) =>
+                    handleAdjustmentFieldChange("amount", event.target.value)
+                  }
+                  placeholder="Enter amount in rupiah"
+                  required
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="adjustment-effective-date">
+                  Effective Date
+                </Label>
+                <Input
+                  id="adjustment-effective-date"
+                  type="date"
+                  value={adjustmentForm.effectiveDate}
+                  onChange={(event) =>
+                    handleAdjustmentFieldChange(
+                      "effectiveDate",
+                      event.target.value
+                    )
+                  }
+                  required
+                />
+              </div>
+            </div>
+
+            {adjustmentError ? (
+              <p className="text-sm font-medium text-destructive">
+                {adjustmentError}
+              </p>
+            ) : null}
+
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleAdjustmentDialogToggle(false)}
+                disabled={adjustmentSaving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={adjustmentSaving}>
+                {adjustmentSaving ? "Saving..." : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   );
 }

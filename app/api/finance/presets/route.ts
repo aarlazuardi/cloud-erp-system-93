@@ -4,7 +4,9 @@ import { UnauthorizedError, requireUser } from "@/lib/auth";
 import clientPromise from "@/lib/mongodb";
 import {
   TRANSACTION_PRESETS,
+  normaliseFinanceEntryType,
   type CashFlowCategory,
+  type FinanceEntryType,
   type TransactionPresetKey,
 } from "@/lib/transaction-presets";
 
@@ -14,7 +16,7 @@ type TemplateResponse = {
   id: string;
   name: string;
   label: string;
-  type: "income" | "expense";
+  type: FinanceEntryType;
   cashFlowCategory: CashFlowCategory;
   defaultDescription?: string;
   source: TemplateSource;
@@ -113,15 +115,12 @@ const ADDITIONAL_PRESETS: Array<Omit<TemplateResponse, "id" | "source">> = [
   },
 ];
 
-function normaliseType(value: unknown): "income" | "expense" | null {
-  if (value === "income" || value === "expense") {
-    return value;
-  }
-  return null;
+function normaliseType(value: unknown): FinanceEntryType | null {
+  return normaliseFinanceEntryType(value);
 }
 
 function normaliseCashFlow(value: unknown): CashFlowCategory {
-  if (value === "investing" || value === "financing") {
+  if (value === "investing" || value === "financing" || value === "non-cash") {
     return value;
   }
   return "operating";
@@ -145,7 +144,7 @@ function normaliseDescription(value: unknown): string | undefined {
 
 function buildId(
   name: string,
-  type: "income" | "expense",
+  type: FinanceEntryType,
   cashFlow: CashFlowCategory,
   source: TemplateSource
 ) {

@@ -6,7 +6,7 @@ import { buildReportData, type PeriodKey } from "@/lib/finance";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_PERIOD: PeriodKey = "current-month";
+const DEFAULT_PERIOD: PeriodKey = "all-time";
 const VALID_TYPES = new Set(["income-statement", "balance-sheet", "cash-flow"]);
 
 function isValidPeriod(value: string | null): value is PeriodKey {
@@ -19,6 +19,7 @@ function isValidPeriod(value: string | null): value is PeriodKey {
       "last-quarter",
       "year-to-date",
       "last-year",
+      "all-time",
     ].includes(value)
   );
 }

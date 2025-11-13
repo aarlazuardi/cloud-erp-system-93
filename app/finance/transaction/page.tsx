@@ -24,17 +24,18 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { format } from "date-fns";
-import { CalendarIcon } from "lucide-react";
+import { format, addYears, subYears, setYear, setMonth } from "date-fns";
+import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
+import type { FinanceEntryType } from "@/lib/transaction-presets";
 
 type TransactionStatus = "posted" | "pending";
-type CashFlowKind = "operating" | "investing" | "financing";
-type FinanceType = "income" | "expense";
+type CashFlowKind = "operating" | "investing" | "financing" | "non-cash";
+type FinanceType = FinanceEntryType;
 
 type TransactionTemplate = {
   id: string;
@@ -53,6 +54,14 @@ type TemplatesResponse = {
 
 const CUSTOM_TEMPLATE_ID = "custom";
 
+const FINANCE_TYPE_OPTIONS: Array<{ value: FinanceType; label: string }> = [
+  { value: "income", label: "Income" },
+  { value: "expense", label: "Expense" },
+  { value: "asset", label: "Asset" },
+  { value: "liability", label: "Liability" },
+  { value: "equity", label: "Equity" },
+];
+
 export default function TransactionInput() {
   const router = useRouter();
   const { toast } = useToast();
@@ -64,11 +73,32 @@ export default function TransactionInput() {
   const [cashFlowType, setCashFlowType] = useState<CashFlowKind>("operating");
   const [financeType, setFinanceType] = useState<FinanceType>("income");
   const [amount, setAmount] = useState("");
+  const [formattedAmount, setFormattedAmount] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [counterparty, setCounterparty] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+
+  // Currency formatting utilities
+  const formatRupiah = (value: string): string => {
+    // Remove all non-digits
+    const numbers = value.replace(/\D/g, "");
+    if (!numbers) return "";
+
+    // Format with thousand separators
+    return new Intl.NumberFormat("id-ID").format(parseInt(numbers));
+  };
+
+  const parseRupiah = (value: string): string => {
+    return value.replace(/\D/g, "");
+  };
+
+  const handleAmountChange = (value: string) => {
+    const numericValue = parseRupiah(value);
+    setAmount(numericValue);
+    setFormattedAmount(formatRupiah(value));
+  };
 
   const categorySuggestions = useMemo(() => {
     const unique = new Set<string>();
@@ -185,7 +215,8 @@ export default function TransactionInput() {
       return;
     }
 
-    const template = selectedTemplateId === CUSTOM_TEMPLATE_ID ? null : selectedTemplate;
+    const template =
+      selectedTemplateId === CUSTOM_TEMPLATE_ID ? null : selectedTemplate;
     const presetKey = template?.presetKey;
     const presetLabel = template?.label;
     const trimmedCounterparty = counterparty.trim();
@@ -205,7 +236,9 @@ export default function TransactionInput() {
           date: date.toISOString(),
           description: trimmedDescription,
           category: trimmedCategory,
-          counterparty: trimmedCounterparty.length ? trimmedCounterparty : undefined,
+          counterparty: trimmedCounterparty.length
+            ? trimmedCounterparty
+            : undefined,
           presetLabel,
           presetKey,
         }),
@@ -285,7 +318,81 @@ export default function TransactionInput() {
                           {date ? format(date, "PPP") : "Select date"}
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <div className="p-3 border-b">
+                          <div className="flex items-center justify-between space-x-2">
+                            {/* Year Selector */}
+                            <Select
+                              value={(date ?? new Date())
+                                .getFullYear()
+                                .toString()}
+                              onValueChange={(year) => {
+                                const newDate = setYear(
+                                  date ?? new Date(),
+                                  parseInt(year)
+                                );
+                                setDate(newDate);
+                              }}
+                            >
+                              <SelectTrigger className="w-[100px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: 21 }, (_, i) => {
+                                  const year =
+                                    new Date().getFullYear() - 10 + i;
+                                  return (
+                                    <SelectItem
+                                      key={year}
+                                      value={year.toString()}
+                                    >
+                                      {year}
+                                    </SelectItem>
+                                  );
+                                })}
+                              </SelectContent>
+                            </Select>
+
+                            {/* Month Selector */}
+                            <Select
+                              value={(date ?? new Date()).getMonth().toString()}
+                              onValueChange={(month) => {
+                                const newDate = setMonth(
+                                  date ?? new Date(),
+                                  parseInt(month)
+                                );
+                                setDate(newDate);
+                              }}
+                            >
+                              <SelectTrigger className="w-[120px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {[
+                                  "January",
+                                  "February",
+                                  "March",
+                                  "April",
+                                  "May",
+                                  "June",
+                                  "July",
+                                  "August",
+                                  "September",
+                                  "October",
+                                  "November",
+                                  "December",
+                                ].map((month, index) => (
+                                  <SelectItem
+                                    key={index}
+                                    value={index.toString()}
+                                  >
+                                    {month}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
                         <Calendar
                           mode="single"
                           selected={date}
@@ -296,7 +403,8 @@ export default function TransactionInput() {
                             }
                           }}
                           initialFocus
-                          defaultMonth={date ?? new Date()}
+                          month={date ?? new Date()}
+                          onMonthChange={setDate}
                           className="w-auto"
                         />
                       </PopoverContent>
@@ -326,7 +434,8 @@ export default function TransactionInput() {
                             {templates
                               .filter(
                                 (item) =>
-                                  item.source === "database" && item.type === "income"
+                                  item.source === "database" &&
+                                  item.type === "income"
                               )
                               .map((item) => (
                                 <SelectItem key={item.id} value={item.id}>
@@ -341,7 +450,8 @@ export default function TransactionInput() {
                             {templates
                               .filter(
                                 (item) =>
-                                  item.source === "database" && item.type === "expense"
+                                  item.source === "database" &&
+                                  item.type === "expense"
                               )
                               .map((item) => (
                                 <SelectItem key={item.id} value={item.id}>
@@ -351,14 +461,17 @@ export default function TransactionInput() {
                           </SelectGroup>
                         )}
                         {(hasDatabaseIncome || hasDatabaseExpense) &&
-                          (hasPresetIncome || hasPresetExpense) && <SelectSeparator />}
+                          (hasPresetIncome || hasPresetExpense) && (
+                            <SelectSeparator />
+                          )}
                         {hasPresetIncome && (
                           <SelectGroup>
                             <SelectLabel>Template Pendapatan</SelectLabel>
                             {templates
                               .filter(
                                 (item) =>
-                                  item.source === "preset" && item.type === "income"
+                                  item.source === "preset" &&
+                                  item.type === "income"
                               )
                               .map((item) => (
                                 <SelectItem key={item.id} value={item.id}>
@@ -373,7 +486,8 @@ export default function TransactionInput() {
                             {templates
                               .filter(
                                 (item) =>
-                                  item.source === "preset" && item.type === "expense"
+                                  item.source === "preset" &&
+                                  item.type === "expense"
                               )
                               .map((item) => (
                                 <SelectItem key={item.id} value={item.id}>
@@ -389,7 +503,8 @@ export default function TransactionInput() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Memilih template akan mengisi tipe transaksi, arus kas, dan kategori secara otomatis.
+                      Memilih template akan mengisi tipe transaksi, arus kas,
+                      dan kategori secara otomatis.
                     </p>
                   </div>
 
@@ -406,10 +521,21 @@ export default function TransactionInput() {
                           <SelectValue placeholder="Pilih tipe" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="income">Income</SelectItem>
-                          <SelectItem value="expense">Expense</SelectItem>
+                          {FINANCE_TYPE_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Asset:</strong> Untuk kas awal/saldo awal,
+                        gunakan kategori yang mengandung kata &quot;kas&quot;
+                        atau &quot;awal&quot;. Untuk pembelian aset, pilih cash
+                        flow &quot;Operating&quot; (kurangi kas) atau
+                        &quot;Investing&quot; (pembelian kredit/tidak kurangi
+                        kas).
+                      </p>
                     </div>
 
                     <div className="space-y-2">
@@ -444,25 +570,71 @@ export default function TransactionInput() {
                           <SelectValue placeholder="Select cash flow type" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="operating">Operating</SelectItem>
-                          <SelectItem value="investing">Investing</SelectItem>
-                          <SelectItem value="financing">Financing</SelectItem>
+                          <SelectItem value="operating">
+                            Operating (Cash Purchase/Sale)
+                          </SelectItem>
+                          <SelectItem value="investing">
+                            Investing (Asset Recognition)
+                          </SelectItem>
+                          <SelectItem value="financing">
+                            Financing (Loan/Capital)
+                          </SelectItem>
+                          <SelectItem value="non-cash">
+                            Non-Cash (Depreciation/Accrual)
+                          </SelectItem>
                         </SelectContent>
                       </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {financeType === "asset" && (
+                          <>
+                            <strong>Operating:</strong> Pembelian aset dengan
+                            kas (mengurangi cash balance)
+                            <br />
+                            <strong>Investing:</strong> Pencatatan aset yang
+                            sudah ada (tidak mengurangi cash)
+                            <br />
+                            <strong>Financing:</strong> Aset dibeli dengan
+                            pinjaman/kredit
+                          </>
+                        )}
+                        {financeType === "liability" && (
+                          <>
+                            <strong>Operating:</strong> Hutang operasional
+                            <br />
+                            <strong>Financing:</strong> Pinjaman jangka panjang
+                            (menambah cash balance)
+                          </>
+                        )}
+                        {financeType === "income" &&
+                          "Pilih Operating untuk penjualan tunai, Investing/Financing untuk pendapatan non-operasional"}
+                        {financeType === "expense" &&
+                          "Pilih Operating untuk pengeluaran tunai, Non-Cash untuk accrual"}
+                      </p>
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="amount">Amount (IDR)</Label>
-                      <Input
-                        id="amount"
-                        type="number"
-                        inputMode="decimal"
-                        placeholder="0"
-                        min="0"
-                        step="1"
-                        value={amount}
-                        onChange={(event) => setAmount(event.target.value)}
-                      />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground text-sm font-medium">
+                          Rp
+                        </span>
+                        <Input
+                          id="amount"
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="0"
+                          className="pl-8"
+                          value={formattedAmount}
+                          onChange={(event) =>
+                            handleAmountChange(event.target.value)
+                          }
+                        />
+                      </div>
+                      {formattedAmount && (
+                        <p className="text-xs text-muted-foreground">
+                          Numeric value: {amount}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -481,7 +653,8 @@ export default function TransactionInput() {
                       ))}
                     </datalist>
                     <p className="text-xs text-muted-foreground">
-                      Kategori digunakan untuk laporan laba rugi dan arus kas. Anda dapat mengetik kategori baru.
+                      Kategori digunakan untuk laporan laba rugi dan arus kas.
+                      Anda dapat mengetik kategori baru.
                     </p>
                   </div>
 
@@ -496,7 +669,9 @@ export default function TransactionInput() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="counterparty">Counterparty (optional)</Label>
+                    <Label htmlFor="counterparty">
+                      Counterparty (optional)
+                    </Label>
                     <Input
                       id="counterparty"
                       placeholder="Contoh: PT Nusantara Makmur"

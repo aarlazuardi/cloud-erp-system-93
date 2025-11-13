@@ -6,7 +6,12 @@ if (!uri) {
   throw new Error("MONGODB_URI environment variable is not set");
 }
 
-const options = {};
+const options = {
+  maxPoolSize: 10,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  family: 4, // Use IPv4, skip trying IPv6
+};
 
 declare global {
   var _mongoClientPromise: Promise<MongoClient> | undefined;

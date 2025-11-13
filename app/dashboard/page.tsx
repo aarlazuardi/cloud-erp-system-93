@@ -28,6 +28,7 @@ type DashboardMetrics = {
     label: string;
     income: number;
     expenses: number;
+    cashBalance: number;
   }>;
   notifications: string[];
 };
@@ -74,17 +75,53 @@ export default function Dashboard() {
   useEffect(() => {
     let ignore = false;
 
+    const redirectToLogin = async () => {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => {
+        /* ignore logout errors */
+      });
+      const callback = encodeURIComponent(
+        window.location.pathname + window.location.search
+      );
+      router.replace(`/login?callbackUrl=${callback}`);
+    };
+
     const loadData = async () => {
       setLoading(true);
+      console.log("🔄 Loading dashboard data...");
       try {
-        const response = await fetch("/api/dashboard", { cache: "no-store" });
-        if (response.status === 401) {
-          const callback = encodeURIComponent(
-            window.location.pathname + window.location.search
+        console.log("🔐 Checking session...");
+        const sessionResponse = await fetch("/api/auth/session", {
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        console.log("📊 Session response status:", sessionResponse.status);
+        if (!sessionResponse.ok) {
+          if (sessionResponse.status === 401) {
+            console.log("❌ Session expired, redirecting to login");
+            await redirectToLogin();
+            return;
+          }
+
+          console.warn(
+            "Session verification failed with status",
+            sessionResponse.status
           );
-          router.replace(`/login?callbackUrl=${callback}`);
+          await redirectToLogin();
           return;
         }
+
+        const sessionData = await sessionResponse.json();
+        console.log("✅ Session valid:", sessionData);
+
+        console.log("📈 Fetching dashboard data...");
+        const response = await fetch("/api/dashboard", {
+          cache: "no-store",
+          credentials: "include",
+        });
 
         if (!response.ok) {
           throw new Error("Failed to fetch dashboard data");
@@ -97,7 +134,7 @@ export default function Dashboard() {
       } catch (err) {
         console.error(err);
         if (!ignore) {
-          setError("Tidak dapat memuat data dashboard.");
+          setError("Tidak dapat memuat data dashboard. Silakan coba lagi.");
         }
       } finally {
         if (!ignore) {
@@ -153,19 +190,23 @@ export default function Dashboard() {
   const chartConfig = {
     income: {
       label: "Pendapatan",
-      color: "hsl(var(--chart-1))",
+      color: "#22c55e", // Green for income
     },
     expenses: {
       label: "Pengeluaran",
-      color: "hsl(var(--chart-2))",
+      color: "#ef4444", // Red for expenses
+    },
+    cashBalance: {
+      label: "Saldo Kas",
+      color: "#06b6d4", // Blue for cash balance
     },
   } as const;
 
   const chartData = monthlyTrend.map((entry) => ({
-    ...entry,
     label: entry.label,
     income: entry.income,
     expenses: entry.expenses,
+    cashBalance: entry.cashBalance || 0,
   }));
 
   return (
@@ -184,7 +225,7 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
             )}
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {statCards.map((card) => (
                 <Card
                   key={card.key}
@@ -312,15 +353,43 @@ export default function Dashboard() {
                             dataKey="income"
                             name="Pendapatan"
                             fill="var(--color-income)"
-                            radius={[8, 8, 0, 0]}
-                            maxBarSize={32}
+                            radius={[2, 2, 0, 0]}
+                            maxBarSize={20}
                           />
                           <Bar
                             dataKey="expenses"
                             name="Pengeluaran"
                             fill="var(--color-expenses)"
-                            radius={[8, 8, 0, 0]}
-                            maxBarSize={32}
+                            radius={[2, 2, 0, 0]}
+                            maxBarSize={20}
+                          />
+                          <Bar
+                            dataKey="assets"
+                            name="Aset"
+                            fill="var(--color-assets)"
+                            radius={[2, 2, 0, 0]}
+                            maxBarSize={20}
+                          />
+                          <Bar
+                            dataKey="liabilities"
+                            name="Liabilitas"
+                            fill="var(--color-liabilities)"
+                            radius={[2, 2, 0, 0]}
+                            maxBarSize={20}
+                          />
+                          <Bar
+                            dataKey="equity"
+                            name="Ekuitas"
+                            fill="var(--color-equity)"
+                            radius={[2, 2, 0, 0]}
+                            maxBarSize={20}
+                          />
+                          <Bar
+                            dataKey="cashBalance"
+                            name="Saldo Kas"
+                            fill="var(--color-cashBalance)"
+                            radius={[2, 2, 0, 0]}
+                            maxBarSize={20}
                           />
                         </BarChart>
                       </ChartContainer>
@@ -332,19 +401,26 @@ export default function Dashboard() {
                               <th className="px-4 py-3 text-left">Periode</th>
                               <th className="px-4 py-3 text-right">Income</th>
                               <th className="px-4 py-3 text-right">Expenses</th>
+                              <th className="px-4 py-3 text-right">
+                                Cash Balance
+                              </th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 bg-white/70">
-                            {chartData.map((entry) => (
+                            {chartData.map((entry, index) => (
                               <tr key={entry.label}>
                                 <td className="px-4 py-3 font-medium text-slate-700">
                                   {entry.label}
                                 </td>
-                                <td className="px-4 py-3 text-right text-slate-600">
+                                <td className="px-4 py-3 text-right text-emerald-600 font-medium">
                                   {formatCurrency(entry.income)}
                                 </td>
-                                <td className="px-4 py-3 text-right text-slate-600">
+                                <td className="px-4 py-3 text-right text-red-600 font-medium">
                                   {formatCurrency(entry.expenses)}
+                                </td>
+
+                                <td className="px-4 py-3 text-right text-cyan-600 font-medium">
+                                  {formatCurrency(entry.cashBalance)}
                                 </td>
                               </tr>
                             ))}

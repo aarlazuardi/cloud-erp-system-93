@@ -9,6 +9,7 @@ import {
 import {
   TRANSACTION_PRESETS,
   isTransactionPresetKey,
+  normaliseFinanceEntryType,
 } from "@/lib/transaction-presets";
 
 export const runtime = "nodejs";
@@ -56,7 +57,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     } else {
       presetKey = presetKeyRaw || undefined;
       presetLabel = presetLabelRaw || undefined;
-      type = typeof body.type === "string" ? body.type : undefined;
+      const typeCandidate = normaliseFinanceEntryType(body.type);
+      type = typeCandidate ?? undefined;
       category = typeof body.category === "string" ? body.category : undefined;
     }
 
@@ -71,7 +73,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
           ? "posted"
           : undefined,
       cashFlowType:
-        body.cashFlowType === "investing" || body.cashFlowType === "financing"
+        body.cashFlowType === "investing" ||
+        body.cashFlowType === "financing" ||
+        body.cashFlowType === "non-cash"
           ? body.cashFlowType
           : body.cashFlowType === "operating"
           ? "operating"
@@ -87,6 +91,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       type,
       category,
     };
+
+    if (presetKey && isTransactionPresetKey(presetKey)) {
+      input.cashFlowType = TRANSACTION_PRESETS[presetKey].cashFlowCategory;
+    }
 
     const updated = await updateTransaction(params.id, user.userId, input);
 

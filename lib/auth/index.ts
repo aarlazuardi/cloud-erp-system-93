@@ -3,7 +3,11 @@ import { cookies } from "next/headers";
 import { ObjectId, type Collection } from "mongodb";
 
 import clientPromise from "../mongodb";
-import { AUTH_COOKIE_NAME, SESSION_TTL_SECONDS } from "./constants";
+import {
+  AUTH_COOKIE_NAME,
+  SESSION_REFRESH_THRESHOLD_SECONDS,
+  SESSION_TTL_SECONDS,
+} from "./constants";
 
 const DEFAULT_DB_NAME = process.env.MONGODB_DB ?? "cloud-erp";
 
@@ -82,11 +86,26 @@ export async function getSessionByToken(
     return null;
   }
 
-  const expiresAt =
+  const now = new Date();
+  let expiresAt =
     doc.expiresAt instanceof Date ? doc.expiresAt : new Date(doc.expiresAt);
-  if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+
+  if (
+    Number.isNaN(expiresAt.getTime()) ||
+    expiresAt.getTime() <= now.getTime()
+  ) {
     await sessions.deleteOne({ token });
     return null;
+  }
+
+  const remainingMs = expiresAt.getTime() - now.getTime();
+  if (remainingMs < SESSION_REFRESH_THRESHOLD_SECONDS * 1000) {
+    const extendedExpiry = new Date(now.getTime() + SESSION_TTL_SECONDS * 1000);
+    await sessions.updateOne(
+      { token },
+      { $set: { expiresAt: extendedExpiry } }
+    );
+    expiresAt = extendedExpiry;
   }
 
   return {
