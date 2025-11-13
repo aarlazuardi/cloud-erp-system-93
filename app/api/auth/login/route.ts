@@ -132,51 +132,36 @@ export async function POST(request: Request) {
       });
     }
 
-    // For admin user, ALWAYS try to use existing admin user first
+    // For admin user, ALWAYS use existing admin user - NEVER create new one
     if (!user && normalizedUsername === DEFAULT_ADMIN_USERNAME) {
-      console.log("🔧 Admin user not found with exact username, searching for any admin...");
+      console.log("🔧 Admin user not found with exact username, searching for ANY admin user...");
       
-      // Try to find ANY admin user (in case there are multiple or username differs slightly)
-      user = await users.findOne({ role: DEFAULT_ADMIN_ROLE });
-      
-      if (user) {
-        console.log("✅ Found existing admin user:", user._id?.toString());
-      } else {
-        console.log("🆕 No admin user exists, checking default password...");
-        if (password !== DEFAULT_ADMIN_PASSWORD) {
-          console.log("❌ Default admin password mismatch");
-          return NextResponse.json(
-            { error: "Username atau password salah." },
-            { status: 401 }
-          );
+      // FORCE: Use the specific admin user that has transactions
+      const specificUserId = "69156e50d7b13bfbe91e4869";
+      try {
+        user = await users.findOne({ _id: new ObjectId(specificUserId) });
+        if (user) {
+          console.log("✅ FORCED use of admin user with transactions:", user._id?.toString());
         }
-        console.log("✅ Default admin password correct, creating NEW user...");
-
-        const timestamp = new Date();
-        console.log("🔐 Hashing default admin password...");
-        console.log("Password to hash:", DEFAULT_ADMIN_PASSWORD);
-        const passwordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
-        console.log("🔐 Generated hash:", passwordHash);
-        console.log("🔐 Hash length:", passwordHash.length);
-        const upserted = await users.findOneAndUpdate(
-          { username: DEFAULT_ADMIN_USERNAME },
-          {
-            $set: {
-              username: DEFAULT_ADMIN_USERNAME,
-              passwordHash,
-              role: DEFAULT_ADMIN_ROLE,
-              updatedAt: timestamp,
-            },
-            $setOnInsert: {
-              createdAt: timestamp,
-            },
-          },
-          { upsert: true, returnDocument: "after" }
+      } catch (e) {
+        console.log("⚠️ Could not find specific user, trying by role...");
+      }
+      
+      // Fallback: Try to find ANY admin user by role
+      if (!user) {
+        user = await users.findOne({ role: DEFAULT_ADMIN_ROLE });
+        if (user) {
+          console.log("✅ Found existing admin user by role:", user._id?.toString());
+        }
+      }
+      
+      // ABSOLUTELY NO USER CREATION - if no admin exists, return error
+      if (!user) {
+        console.log("❌ No admin user exists and will NOT create new one");
+        return NextResponse.json(
+          { error: "Admin user tidak ditemukan. Hubungi administrator." },
+          { status: 401 }
         );
-
-        user =
-          upserted.value ??
-          (await users.findOne({ username: DEFAULT_ADMIN_USERNAME }));
       }
     }
 
