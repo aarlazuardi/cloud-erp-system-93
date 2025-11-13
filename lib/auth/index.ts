@@ -145,20 +145,20 @@ export async function requireUser(): Promise<AuthenticatedUser> {
   console.log("👤 Session found:", {
     userId: session.userId.toString(),
     username: session.username,
-    role: session.role
+    role: session.role,
   });
-  
+
   const result = {
     userId: session.userId,
     username: session.username,
     role: session.role ?? null,
   };
-  
+
   console.log("✅ requireUser returning:", {
     userId: result.userId.toString(),
     username: result.username,
-    role: result.role
+    role: result.role,
   });
-  
+
   return result;
 }

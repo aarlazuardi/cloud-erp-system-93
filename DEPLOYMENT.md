@@ -17,7 +17,7 @@ Value: mongodb+srv://alazuardi7_db_user:O3tUd9zLXbMB5unA@cluster0.xset63p.mongod
 Environment: Production, Preview, Development
 
 Key: MONGODB_DB
-Value: cloud-erp  
+Value: cloud-erp
 Environment: Production, Preview, Development
 
 Key: DEFAULT_ADMIN_USERNAME
@@ -36,6 +36,7 @@ Environment: Production, Preview, Development
 ### Step 2: Redeploy
 
 After adding environment variables:
+
 1. Go to **Deployments** tab
 2. Click **Redeploy** on the latest deployment
 3. Or wait for automatic deployment from GitHub push
@@ -62,6 +63,7 @@ After adding environment variables:
 ## Troubleshooting
 
 If deployment fails:
+
 1. Check that all environment variables are properly set
 2. Ensure MongoDB connection string is correct
 3. Verify that the database name matches `MONGODB_DB` value

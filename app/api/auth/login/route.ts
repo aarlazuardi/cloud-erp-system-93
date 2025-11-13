@@ -28,7 +28,11 @@ export async function POST(request: Request) {
       password?: unknown;
     };
 
-    console.log("📝 Received credentials:", { username: username, passwordLength: typeof password === 'string' ? password.length : 'invalid' });
+    console.log("📝 Received credentials:", {
+      username: username,
+      passwordLength:
+        typeof password === "string" ? password.length : "invalid",
+    });
 
     if (typeof username !== "string" || typeof password !== "string") {
       console.log("❌ Invalid credentials format");
@@ -116,12 +120,12 @@ export async function POST(request: Request) {
     }
 
     console.log("🔍 Looking up user in database...");
-    
+
     // ALWAYS use the admin user that has the transactions (ID: 69156e50d7b13bfbe91e4869)
     let user;
     if (normalizedUsername === DEFAULT_ADMIN_USERNAME) {
       console.log("🔍 Admin login detected, forcing specific user ID");
-      
+
       // ALWAYS use the user that has transactions
       user = {
         _id: new ObjectId("69156e50d7b13bfbe91e4869"),
@@ -129,20 +133,20 @@ export async function POST(request: Request) {
         role: "admin",
         passwordHash: null, // We'll bypass password check
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
       console.log("🎯 Using hardcoded admin user with transactions");
     } else {
       user = await users.findOne({ username: normalizedUsername });
     }
-    
+
     console.log("👤 User found in DB:", user ? "Yes" : "No");
     if (user) {
-      console.log("👤 User details:", { 
-        id: user._id?.toString(), 
-        username: user.username, 
+      console.log("👤 User details:", {
+        id: user._id?.toString(),
+        username: user.username,
         role: user.role,
-        hasPasswordHash: !!user.passwordHash 
+        hasPasswordHash: !!user.passwordHash,
       });
     }
 
@@ -185,10 +189,14 @@ export async function POST(request: Request) {
     }
 
     // Skip all validations for hardcoded admin user
-    if (normalizedUsername === DEFAULT_ADMIN_USERNAME && 
-        user._id?.toString() === "69156e50d7b13bfbe91e4869") {
-      console.log("🎯 Bypassing all validations for admin user with transactions");
-      
+    if (
+      normalizedUsername === DEFAULT_ADMIN_USERNAME &&
+      user._id?.toString() === "69156e50d7b13bfbe91e4869"
+    ) {
+      console.log(
+        "🎯 Bypassing all validations for admin user with transactions"
+      );
+
       // Just verify the password is correct
       if (password !== DEFAULT_ADMIN_PASSWORD) {
         console.log("❌ Admin password mismatch");
@@ -197,7 +205,7 @@ export async function POST(request: Request) {
           { status: 401 }
         );
       }
-      
+
       console.log("✅ Admin password verified, proceeding with login");
     } else {
       // Normal validation for other users
@@ -224,7 +232,7 @@ export async function POST(request: Request) {
       console.log("🔐 Comparing passwords...");
       const passwordMatch = await bcrypt.compare(password, user.passwordHash);
       console.log("🔐 Password comparison result:", passwordMatch);
-      
+
       if (!passwordMatch) {
         console.log("❌ Password verification failed");
         return NextResponse.json(

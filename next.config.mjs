@@ -16,6 +16,6 @@ const nextConfig = {
     DEFAULT_ADMIN_PASSWORD: process.env.DEFAULT_ADMIN_PASSWORD,
     DEFAULT_ADMIN_ROLE: process.env.DEFAULT_ADMIN_ROLE,
   },
-}
+};
 
-export default nextConfig
+export default nextConfig;

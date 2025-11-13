@@ -4,8 +4,13 @@ const uri = process.env.MONGODB_URI;
 
 if (!uri) {
   console.error("❌ MONGODB_URI environment variable is not set");
-  console.error("Available env vars:", Object.keys(process.env).filter(key => key.includes('MONGO')));
-  throw new Error("MONGODB_URI environment variable is not set. Please check your environment variables configuration in Vercel dashboard.");
+  console.error(
+    "Available env vars:",
+    Object.keys(process.env).filter((key) => key.includes("MONGO"))
+  );
+  throw new Error(
+    "MONGODB_URI environment variable is not set. Please check your environment variables configuration in Vercel dashboard."
+  );
 }
 
 console.log("🔗 MongoDB Connection Info:");

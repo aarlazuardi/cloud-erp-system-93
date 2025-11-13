@@ -12,14 +12,14 @@ export async function GET() {
     console.log("🔧 Environment check:");
     console.log("- NODE_ENV:", process.env.NODE_ENV);
     console.log("- MONGODB_URI exists:", !!process.env.MONGODB_URI);
-    console.log("- MONGODB_DB:", process.env.MONGODB_DB || 'undefined');
-    
+    console.log("- MONGODB_DB:", process.env.MONGODB_DB || "undefined");
+
     const user = await requireUser();
     console.log("🐛 User for dashboard:", {
       userId: user.userId.toString(),
-      username: user.username
+      username: user.username,
     });
-    
+
     const snapshot = await buildDashboardSnapshot(user.userId);
     console.log("📈 Dashboard snapshot result:", snapshot);
     return NextResponse.json(snapshot);
