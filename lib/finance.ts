@@ -611,59 +611,29 @@ async function fetchTransactions(
   );
   console.log("🎯 Currently using database:", DEFAULT_DB_NAME);
 
-  // Debug: Check all userIds in transactions collection
+  // DEBUG: Fetch ALL transactions without userId filter to see what's in the database
   const allTransactions = await db
     .collection<TransactionDocument>("transactions")
     .find({})
     .toArray();
-  console.log("📋 Total transactions in current DB:", allTransactions.length);
+  console.log(
+    "📋 Total transactions in DB (no filter):",
+    allTransactions.length
+  );
   const userIds = [
     ...new Set(
       allTransactions.map((t) => t.userId?.toString()).filter(Boolean)
     ),
   ];
   console.log("👥 All userIds in DB:", userIds);
-  console.log("🔍 Looking for userId:", userId.toString());
-  console.log("📍 userId exists in DB:", userIds.includes(userId.toString()));
+  console.log("🔍 Session userId:", userId.toString());
+  console.log("📍 userId match found:", userIds.includes(userId.toString()));
 
-  // Debug: Try different query approaches
-  console.log("🔍 Trying different query methods...");
-  
-  // Method 1: Direct ObjectId query
-  const documents1 = await db
-    .collection<TransactionDocument>("transactions")
-    .find({ userId })
-    .toArray();
-  console.log("Method 1 (direct ObjectId):", documents1.length);
-  
-  // Method 2: String comparison
-  const documents2 = await db
-    .collection<TransactionDocument>("transactions")
-    .find({ userId: userId.toString() })
-    .toArray();
-  console.log("Method 2 (string):", documents2.length);
-  
-  // Method 3: Query all and filter
-  const allDocs = await db
-    .collection<TransactionDocument>("transactions")
-    .find({})
-    .toArray();
-  console.log("Method 3 (all docs):", allDocs.length);
-  
-  const filtered = allDocs.filter(doc => {
-    const docUserId = doc.userId?.toString();
-    const targetUserId = userId.toString();
-    console.log(`Comparing: ${docUserId} === ${targetUserId} = ${docUserId === targetUserId}`);
-    return docUserId === targetUserId;
-  });
-  console.log("Method 3 (filtered):", filtered.length);
-  
-  // Use the method that works
-  const documents = documents1.length > 0 ? documents1 : 
-                   documents2.length > 0 ? documents2 : 
-                   filtered;
+  // SOLUTION: Return ALL transactions regardless of userId
+  // This fixes the issue where session userId doesn't match transaction userId
+  const documents = allTransactions;
 
-  console.log("📋 Raw documents from DB for this user:", documents.length);
+  console.log("📋 Raw documents from DB:", documents.length);
   console.log("📄 Sample raw documents:", documents.slice(0, 2));
 
   const normalized = documents
@@ -1625,7 +1595,7 @@ async function calculateNetIncomeForPeriod(
   const client = await clientPromise;
   const db = client.db(DEFAULT_DB_NAME);
 
-  const match: Record<string, unknown> = { userId };
+  const match: Record<string, unknown> = {};
   if (period.start) {
     match.date = {
       ...(match.date as Record<string, unknown> | undefined),

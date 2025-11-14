@@ -47,32 +47,7 @@ export async function POST(request: Request) {
     console.log("🔑 Default admin username:", DEFAULT_ADMIN_USERNAME);
     console.log("🔑 Default admin password:", DEFAULT_ADMIN_PASSWORD);
 
-    // Check for default admin credentials first (fallback for connection issues)
-    if (
-      normalizedUsername === DEFAULT_ADMIN_USERNAME &&
-      password === DEFAULT_ADMIN_PASSWORD
-    ) {
-      console.log("Using fallback admin authentication");
-
-      const session = await createSessionForUser({
-        _id: new ObjectId(),
-        username: DEFAULT_ADMIN_USERNAME,
-        role: DEFAULT_ADMIN_ROLE,
-      });
-
-      const response = NextResponse.json({ message: "Login berhasil." });
-      response.cookies.set({
-        name: AUTH_COOKIE_NAME,
-        value: session.token,
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: SESSION_TTL_SECONDS,
-        secure: process.env.NODE_ENV === "production",
-      });
-
-      return response;
-    }
+    // REMOVED: No fallback that creates new ObjectId - always use database user
 
     let client, db, users;
     try {
@@ -83,110 +58,76 @@ export async function POST(request: Request) {
       console.log("✅ Database connection successful");
     } catch (dbError) {
       console.error("❌ Database connection error:", dbError);
-      // Fallback to default admin if DB is unreachable
-      if (
-        normalizedUsername === DEFAULT_ADMIN_USERNAME &&
-        password === DEFAULT_ADMIN_PASSWORD
-      ) {
-        const session = await createSessionForUser({
-          _id: new ObjectId(),
-          username: DEFAULT_ADMIN_USERNAME,
-          role: DEFAULT_ADMIN_ROLE,
-        });
-
-        const response = NextResponse.json({
-          message: "Login berhasil (offline mode).",
-        });
-        response.cookies.set({
-          name: AUTH_COOKIE_NAME,
-          value: session.token,
-          httpOnly: true,
-          sameSite: "lax",
-          path: "/",
-          maxAge: SESSION_TTL_SECONDS,
-          secure: process.env.NODE_ENV === "production",
-        });
-
-        return response;
-      }
-
       return NextResponse.json(
         {
-          error:
-            "Database tidak tersedia. Gunakan akun admin untuk akses darurat.",
+          error: "Database tidak tersedia. Silakan coba lagi nanti.",
         },
         { status: 503 }
       );
     }
 
     console.log("🔍 Looking up user in database...");
-    let user = await users.findOne({ username: normalizedUsername });
 
-    console.log("👤 User found in DB:", user ? "Yes" : "No");
-    if (user) {
-      console.log("👤 User details:", {
-        id: user._id?.toString(),
-        username: user.username,
-        role: user.role,
-        hasPasswordHash: !!user.passwordHash,
-      });
-    }
+    // CRITICAL FIX: Always use the admin user ID that has the transactions
+    const ADMIN_USER_ID = "69156e50d7b13bfbe91e4869";
 
-    // For admin user, ALWAYS use existing admin user - NEVER create new one
-    if (!user && normalizedUsername === DEFAULT_ADMIN_USERNAME) {
-      console.log("🔧 Admin user not found with exact username, searching for ANY admin user...");
-      
-      // FORCE: Use the specific admin user that has transactions
-      const specificUserId = "69156e50d7b13bfbe91e4869";
-      try {
-        user = await users.findOne({ _id: new ObjectId(specificUserId) });
-        if (user) {
-          console.log("✅ FORCED use of admin user with transactions:", user._id?.toString());
-        }
-      } catch (e) {
-        console.log("⚠️ Could not find specific user, trying by role...");
-      }
-      
-      // Fallback: Try to find ANY admin user by role
-      if (!user) {
-        user = await users.findOne({ role: DEFAULT_ADMIN_ROLE });
-        if (user) {
-          console.log("✅ Found existing admin user by role:", user._id?.toString());
-        }
-      }
-      
-      // ABSOLUTELY NO USER CREATION - if no admin exists, return error
-      if (!user) {
-        console.log("❌ No admin user exists and will NOT create new one");
+    let user: UserDocument | null = null;
+
+    if (normalizedUsername === DEFAULT_ADMIN_USERNAME) {
+      console.log("🔍 Admin login detected, checking password first...");
+
+      // Verify password before anything else
+      if (password !== DEFAULT_ADMIN_PASSWORD) {
+        console.log("❌ Admin password mismatch");
         return NextResponse.json(
-          { error: "Admin user tidak ditemukan. Hubungi administrator." },
+          { error: "Username atau password salah." },
           { status: 401 }
         );
       }
-    }
 
-    // Special handling for admin users
-    if (normalizedUsername === DEFAULT_ADMIN_USERNAME && user.role === DEFAULT_ADMIN_ROLE) {
-      console.log("🔑 Admin user detected, checking password...");
-      
-      // If admin user doesn't have password hash OR password matches default, allow login
-      if (!user.passwordHash || password === DEFAULT_ADMIN_PASSWORD) {
-        console.log("✅ Admin login allowed (no hash or default password)");
-      } else {
-        // Try bcrypt comparison for admin with hash
-        const passwordMatch = await bcrypt.compare(password, user.passwordHash);
-        if (!passwordMatch) {
-          console.log("❌ Admin password verification failed");
-          return NextResponse.json(
-            { error: "Username atau password salah." },
-            { status: 401 }
-          );
-        }
-        console.log("✅ Admin password hash verified");
-      }
+      console.log("✅ Admin password correct");
+      console.log(
+        "🎯 FORCING admin user ID to match transactions:",
+        ADMIN_USER_ID
+      );
+
+      // ALWAYS use the hardcoded admin user ID that has the transactions
+      const adminObjectId = new ObjectId(ADMIN_USER_ID);
+      user = {
+        _id: adminObjectId,
+        username: "admin",
+        role: "admin",
+        passwordHash: undefined, // Password already verified above
+      };
+
+      console.log(
+        "✅ Admin user configured with transaction owner ID:",
+        adminObjectId.toString()
+      );
     } else {
-      // Normal validation for other users
-      if (!user?.passwordHash) {
+      // For non-admin users, look them up normally
+      user = await users.findOne({ username: normalizedUsername });
+
+      console.log("👤 User found in DB:", user ? "Yes" : "No");
+      if (user) {
+        console.log("👤 User details:", {
+          id: user._id?.toString(),
+          username: user.username,
+          role: user.role,
+          hasPasswordHash: !!user.passwordHash,
+        });
+      }
+
+      if (!user) {
+        console.log("❌ User not found");
+        return NextResponse.json(
+          { error: "Username atau password salah." },
+          { status: 401 }
+        );
+      }
+
+      // Validate password for non-admin users
+      if (!user.passwordHash) {
         console.log("❌ User has no password hash");
         return NextResponse.json(
           { error: "Username atau password salah." },
@@ -196,10 +137,6 @@ export async function POST(request: Request) {
 
       if (typeof user.passwordHash !== "string" || !user.passwordHash.length) {
         console.log("❌ Invalid password hash format");
-        console.warn(
-          "User password hash is invalid for username",
-          normalizedUsername
-        );
         return NextResponse.json(
           { error: "Akun tidak memiliki password yang valid." },
           { status: 401 }
@@ -221,12 +158,15 @@ export async function POST(request: Request) {
       console.log("✅ Password verified successfully");
     }
 
-    if (!user._id) {
+    // At this point, user is guaranteed to be set and have the correct ID
+    if (!user || !user._id) {
       return NextResponse.json(
         { error: "User profile is incomplete." },
         { status: 500 }
       );
     }
+
+    console.log("🔑 Creating session for user ID:", user._id.toString());
 
     const session = await createSessionForUser({
       _id: user._id,

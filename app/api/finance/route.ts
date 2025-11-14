@@ -16,10 +16,39 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const user = await requireUser();
-    const overview = await buildFinanceOverview(user.userId);
+    const { searchParams } = new URL(request.url);
+    const period = searchParams.get("period") || "all-time";
+
+    // Validate period
+    const validPeriods = [
+      "current-month",
+      "last-month",
+      "current-quarter",
+      "last-quarter",
+      "year-to-date",
+      "last-year",
+      "all-time",
+    ];
+    const periodKey = validPeriods.includes(period) ? period : "all-time";
+
+    console.log(
+      "📊 Finance API called with period:",
+      periodKey,
+      "for user:",
+      user.userId.toString()
+    );
+
+    const overview = await buildFinanceOverview(user.userId, periodKey as any);
+
+    console.log("💰 Finance overview:", {
+      netIncome: overview.metrics.netIncomeMTD,
+      cashBalance: overview.metrics.cashBalance,
+      transactions: overview.recentTransactions.length,
+    });
+
     return NextResponse.json(overview);
   } catch (error) {
     if (error instanceof UnauthorizedError) {

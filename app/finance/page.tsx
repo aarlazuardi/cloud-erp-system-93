@@ -53,6 +53,25 @@ type FinanceData = {
   }>;
 };
 
+type TimePeriod =
+  | "current-month"
+  | "last-month"
+  | "current-quarter"
+  | "last-quarter"
+  | "year-to-date"
+  | "last-year"
+  | "all-time";
+
+const TIME_PERIOD_LABELS: Record<TimePeriod, string> = {
+  "current-month": "Bulan Ini",
+  "last-month": "Bulan Lalu",
+  "current-quarter": "Kuartal Ini",
+  "last-quarter": "Kuartal Lalu",
+  "year-to-date": "Tahun Berjalan",
+  "last-year": "Tahun Lalu",
+  "all-time": "Semua Waktu",
+};
+
 export default function FinancePage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -60,6 +79,7 @@ export default function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>("all-time");
 
   const getStatusLabel = useCallback((status: string | undefined | null) => {
     const key = (status ?? "").toLowerCase();
@@ -126,7 +146,7 @@ export default function FinancePage() {
         return;
       }
 
-      const response = await fetch("/api/finance", {
+      const response = await fetch(`/api/finance?period=${timePeriod}`, {
         cache: "no-store",
         credentials: "include",
       });
@@ -138,6 +158,12 @@ export default function FinancePage() {
         throw new Error("Gagal mengambil data keuangan");
       }
       const payload = (await response.json()) as FinanceData;
+      console.log("📊 Finance data loaded:", {
+        period: timePeriod,
+        netIncome: payload.metrics.netIncomeMTD,
+        cashBalance: payload.metrics.cashBalance,
+        transactions: payload.recentTransactions.length,
+      });
       setData(payload);
       setError(null);
     } catch (err) {
@@ -150,7 +176,7 @@ export default function FinancePage() {
 
   useEffect(() => {
     void loadData();
-  }, [loadData]);
+  }, [loadData, timePeriod]);
 
   const handleNewTransaction = () => {
     router.push("/finance/transaction");
@@ -299,73 +325,97 @@ export default function FinancePage() {
               </Card>
             )}
 
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-              <Card>
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+              <Card className="border-none shadow-md bg-gradient-to-br from-blue-50 to-white">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">
+                  <CardTitle className="text-sm font-medium text-blue-700">
                     Cash Balance
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {loading ? (
-                    <Skeleton className="h-7 w-24" />
+                    <Skeleton className="h-8 w-32" />
                   ) : (
-                    <div className="text-2xl font-bold text-muted-foreground">
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-900 break-words">
                       {formatCurrency(data?.metrics.cashBalance)}
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-none shadow-md bg-gradient-to-br from-green-50 to-white">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">
+                  <CardTitle className="text-sm font-medium text-green-700">
                     Accounts Receivable
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {loading ? (
-                    <Skeleton className="h-7 w-24" />
+                    <Skeleton className="h-8 w-32" />
                   ) : (
-                    <div className="text-2xl font-bold text-muted-foreground">
+                    <div className="text-2xl sm:text-3xl font-bold text-green-900 break-words">
                       {formatCurrency(data?.metrics.accountsReceivable)}
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-none shadow-md bg-gradient-to-br from-orange-50 to-white">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">
+                  <CardTitle className="text-sm font-medium text-orange-700">
                     Accounts Payable
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {loading ? (
-                    <Skeleton className="h-7 w-24" />
+                    <Skeleton className="h-8 w-32" />
                   ) : (
-                    <div className="text-2xl font-bold text-muted-foreground">
+                    <div className="text-2xl sm:text-3xl font-bold text-orange-900 break-words">
                       {formatCurrency(data?.metrics.accountsPayable)}
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">
-                    Net Income This Month
+              <Card className="border-none shadow-md bg-gradient-to-br from-purple-50 to-white">
+                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-sm font-medium text-purple-700">
+                    Net Income
                   </CardTitle>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs px-2"
+                      >
+                        {TIME_PERIOD_LABELS[timePeriod]}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {(Object.keys(TIME_PERIOD_LABELS) as TimePeriod[]).map(
+                        (period) => (
+                          <DropdownMenuItem
+                            key={period}
+                            onClick={() => setTimePeriod(period)}
+                            className={timePeriod === period ? "bg-accent" : ""}
+                          >
+                            {TIME_PERIOD_LABELS[period]}
+                          </DropdownMenuItem>
+                        )
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </CardHeader>
                 <CardContent>
                   {loading ? (
-                    <Skeleton className="h-7 w-24" />
+                    <Skeleton className="h-8 w-32" />
                   ) : (
                     <div
-                      className={`text-2xl font-bold ${
+                      className={`text-2xl sm:text-3xl font-bold break-words ${
                         (data?.metrics.netIncomeMTD ?? 0) < 0
-                          ? "text-destructive"
-                          : "text-muted-foreground"
+                          ? "text-red-600"
+                          : "text-purple-900"
                       }`}
                     >
                       {formatCurrency(data?.metrics.netIncomeMTD)}

@@ -66,6 +66,51 @@ async function checkData() {
         }, Expires: ${session.expiresAt}`
       );
     });
+
+    // Check transaction dates
+    console.log("\n📅 TRANSACTION DATES:");
+    const txs = await db
+      .collection("transactions")
+      .find({})
+      .sort({ date: -1 })
+      .toArray();
+    txs.forEach((t) => {
+      const date = new Date(t.date);
+      console.log(
+        `${date.toISOString().split("T")[0]} - ${
+          t.description
+        } - Rp ${t.amount.toLocaleString()}`
+      );
+    });
+
+    console.log("\n📊 DATE SUMMARY:");
+    const now = new Date();
+    const thisMonth = txs.filter((t) => {
+      const d = new Date(t.date);
+      return (
+        d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+      );
+    }).length;
+
+    const thisYear = txs.filter((t) => {
+      const d = new Date(t.date);
+      return d.getFullYear() === now.getFullYear();
+    }).length;
+
+    const lastYear = txs.filter((t) => {
+      const d = new Date(t.date);
+      return d.getFullYear() === now.getFullYear() - 1;
+    }).length;
+
+    console.log(`Current date: ${now.toISOString().split("T")[0]}`);
+    console.log(
+      `This month (${now.toLocaleString("en-US", {
+        month: "long",
+        year: "numeric",
+      })}): ${thisMonth} transactions`
+    );
+    console.log(`This year (2025): ${thisYear} transactions`);
+    console.log(`Last year (2024): ${lastYear} transactions`);
   } catch (error) {
     console.error("❌ Error:", error);
   }

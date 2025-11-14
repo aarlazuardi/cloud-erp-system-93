@@ -225,7 +225,7 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
             )}
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {statCards.map((card) => (
                 <Card
                   key={card.key}
@@ -253,7 +253,7 @@ export default function Dashboard() {
                     {loading ? (
                       <Skeleton className="h-8 w-32" />
                     ) : (
-                      <div className="text-3xl font-bold tracking-tight text-slate-900">
+                      <div className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 break-words">
                         {card.value}
                       </div>
                     )}
